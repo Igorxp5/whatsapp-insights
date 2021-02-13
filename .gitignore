@@ -1,0 +1,7 @@
+# Python Cache
+__pycache__/
+
+# WhatsApp files
+key
+wa.db*
+msgstore.db*
