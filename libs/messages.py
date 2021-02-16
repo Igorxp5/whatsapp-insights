@@ -56,23 +56,23 @@ class Message:
     MIME_TYPE_IMAGE_REGEXP = re.compile(r'image/.*')
     MIME_TYPE_VIDEO_REGEXP = re.compile(r'video/.*')
 
-    def __init__(self, remote_jid, from_me, status=None, data=None, timestamp=None, 
+    def __init__(self, remote_jid, from_me, status=None, data=None, date=None,
                  forwarded=False, mime_type=None, media_duration=None, media_name=None, tz=None):
         self.remote_jid = remote_jid
-        self.from_me = from_me
+        self.from_me = bool(from_me)
         try:
             self.status = status and MessageStatus(status)
         except ValueError:
             self.status = status
         self.data = data
-        self.timestamp = datetime.fromtimestamp(timestamp, tz=tz) if not isinstance(timestamp, datetime) else timestamp
+        self.date = datetime.fromtimestamp(date, tz=tz) if not isinstance(date, datetime) else date
         self.forwarded = forwarded
         self.mime_type = mime_type
         self.media_duration = media_duration
         self.media_name = media_name
     
     def __repr__(self):
-        return f'{self.__class__.__name__}{(self.remote_jid, self.from_me, self.status, self.data, self.timestamp, self.mime_type, self.media_duration)}'
+        return f'{self.__class__.__name__}{(self.remote_jid, self.from_me, self.status, self.data, self.date, self.mime_type, self.media_duration)}'
     
     @staticmethod
     def is_audio(mime_type):
