@@ -4,6 +4,7 @@ import sqlite3
 from enum import Enum
 from datetime import datetime
 
+
 class MessageManager:
     def __init__(self):
         self._messages = {}

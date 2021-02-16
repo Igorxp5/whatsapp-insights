@@ -8,7 +8,7 @@ def time_delta_to_str(time, units, round_=False):
     result = []
     for unit in units:
         factor = factors[unit]
-        value = time // factor
+        value = int(time / factor)
         time = time % factor
         if value > 0:
             result.append(f'{value}{unit}')

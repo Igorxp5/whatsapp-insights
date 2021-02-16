@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from .calls import Call
 from .messages import Message
 from .contacts import Contact
 from .utils import time_delta_to_str
@@ -20,13 +21,18 @@ class InsighterManager:
         assert isinstance(insighter, Insighter)
         self._insighters.append(insighter)
     
-    def update(self, message):
-        assert isinstance(message, Message)
+    def update(self, message_or_call):
+        if isinstance(message_or_call, Message):
+            return self._update_by_message(message_or_call)
+        elif isinstance(message_or_call, Call):
+            return self._update_by_call(message_or_call)
+        raise TypeError('expecting Message or Call object')
 
+    def _update_by_message(self, message):
         if not self._include_group and Contact.is_group(message.remote_jid):
             return
 
-        for insighter in self._insighters:
+        for insighter in self._filter_insighters(MessageInsighter):
             if self._group_by_name:
                 if message.remote_jid in self.contact_manager: 
                     contact = self.contact_manager[message.remote_jid]
@@ -34,8 +40,26 @@ class InsighterManager:
                     message.remote_jid = common_contacts[-1].jid if common_contacts else message.remote_jid
             insighter.update(message)
 
+    def _update_by_call(self, call):
+        if not self._include_group and Contact.is_group(call.remote_jid):
+            return
+
+        for insighter in self._filter_insighters(CallInsighter):
+            if self._group_by_name:
+                if call.remote_jid in self.contact_manager: 
+                    contact = self.contact_manager[call.remote_jid]
+                    common_contacts = self.contact_manager.get_contacts_by_display_name(contact.display_name)
+                    call.remote_jid = common_contacts[-1].jid if common_contacts else call.remote_jid
+            insighter.update(call)
+
+    def _filter_insighters(self, class_):
+        return (insighter for insighter in self._insighters if class_ in insighter.__class__.__bases__)
+
 
 class Insighter:
+    """
+    Do not extend this class directly, use a child class such as MessageInsighter and CallInsighter
+    """
     def __init__(self, title, format_):
         self.title = title
         self.format = format_ or '{value}'
@@ -46,14 +70,17 @@ class Insighter:
     @property
     def winner(self):
         value = self._winner and self.normalize_value(self._winner.value)
-        return self._winner and Insighter.Winner(self._winner.jid, self._winner.message, 
+        return self._winner and Insighter.Winner(self._winner.jid, self._winner.data, 
                                                  self.format_value(value=value))
     
-    def update(self, message):
-        if self.is_valid_message(message):
-            self.handle_message(message)
+    def update(self, data):
+        if self.is_valid_data(data):
+            self.handle_data(data)
 
-    def handle_message(self):
+    def is_valid_data(self, data):
+        return True
+
+    def handle_data(self, data):
         raise NotImplementedError
 
     def format_value(self, value):
@@ -67,16 +94,24 @@ class Insighter:
         return value
 
     class Winner:
-        def __init__(self, jid, message, value):
+        def __init__(self, jid, data, value):
             self.jid = jid
-            self.message = message
+            self.data = data
             self.value = value
 
         def __repr__(self):
-            return f'{self.__class__.__name__}{(self.jid, self.message, self.value)}'
+            return f'{self.__class__.__name__}{(self.jid, self.data, self.value)}'
 
 
-class LongestAudioInsighter(Insighter):
+class MessageInsighter(Insighter):
+    pass
+
+
+class CallInsighter(Insighter):
+    pass
+
+
+class LongestAudioInsighter(MessageInsighter):
     def __init__(self, title=None, format_=None, check_media_name=True):
         """
         Create a Longest Audio Insighter
@@ -86,20 +121,20 @@ class LongestAudioInsighter(Insighter):
         self.check_media_name = check_media_name
         super().__init__(title, format_)
     
-    def is_valid_message(self, message):
+    def is_valid_data(self, message):
         return not message.from_me and Message.is_voice_message(message.mime_type) \
             and message.media_duration and not message.forwarded \
             and (not self.check_media_name or message.media_name and message.media_name.endswith('.opus'))
 
-    def handle_message(self, message):
+    def handle_data(self, message):
         if not self._winner or message.media_duration > self._winner.value \
-            or (message.media_duration == self._winner.value and message.date < self._winner.message.date):
+            or (message.media_duration == self._winner.value and message.date < self._winner.data.date):
             self._winner = Insighter.Winner(message.remote_jid, message, message.media_duration)
 
     def normalize_value(self, value):
         return time_delta_to_str(value, ['h', 'm', 's'])
 
-class GreatestAudioAmountInsighter(Insighter):
+class GreatestAudioAmountInsighter(MessageInsighter):
     def __init__(self, title=None, format_=None, check_media_name=True):
         """
         Create a Greatest Audio Insighter
@@ -110,43 +145,40 @@ class GreatestAudioAmountInsighter(Insighter):
         self.check_media_name = check_media_name
         super().__init__(title, format_)
 
-    def is_valid_message(self, message):
+    def is_valid_data(self, message):
         return not message.from_me and Message.is_voice_message(message.mime_type) \
             and message.media_duration and not message.forwarded \
             and (not self.check_media_name or message.media_name and message.media_name.endswith('.opus'))
 
-    def handle_message(self, message):
+    def handle_data(self, message):
         self._rank[message.remote_jid] = self._rank.get(message.remote_jid, 0) + 1
         if not self._winner or self._rank[message.remote_jid] > self._winner.value:
             self._winner = Insighter.Winner(message.remote_jid, None, self._rank[message.remote_jid])
 
 
-class GreatestPhotoAmountInsighter(Insighter):
+class GreatestPhotoAmountInsighter(MessageInsighter):
     def __init__(self, title=None, format_=None):
         title = title or 'Greatest amount of photo'
         format_ = format_ or '{value} photos'
         super().__init__(title, format_)
 
-    def is_valid_message(self, message):
+    def is_valid_data(self, message):
         return not message.from_me and Message.is_image(message.mime_type)
 
-    def handle_message(self, message):
+    def handle_data(self, message):
         self._rank[message.remote_jid] = self._rank.get(message.remote_jid, 0) + 1
         if not self._winner or self._rank[message.remote_jid] > self._winner.value:
             self._winner = Insighter.Winner(message.remote_jid, None, self._rank[message.remote_jid])
 
 
-class GreatestAmountOfDaysTalkingInsighter(Insighter):
+class GreatestAmountOfDaysTalkingInsighter(MessageInsighter):
     def __init__(self, title=None, format_=None):
         title = title or 'Greatest amount of days talking'
         format_ = format_ or '{value} days'
         self._total_days_rank = {}
         super().__init__(title, format_)
 
-    def is_valid_message(self, message):
-        return True
-
-    def handle_message(self, message):
+    def handle_data(self, message):
         if message.remote_jid not in self._rank:
             self._rank[message.remote_jid] = {}
             self._total_days_rank[message.remote_jid] = 0
@@ -161,7 +193,7 @@ class GreatestAmountOfDaysTalkingInsighter(Insighter):
                 self._winner = Insighter.Winner(message.remote_jid, None, self._total_days_rank[message.remote_jid])
 
 
-class LongestConversationInsighter(Insighter):
+class LongestConversationInsighter(MessageInsighter):
     # To this insighter to work, the messages has to be ordered (ASC or DESC)
     
     # Max difference between messages time is 1 minute
@@ -171,10 +203,7 @@ class LongestConversationInsighter(Insighter):
         title = title or 'Longest uninterrupted conversation'
         super().__init__(title, format_)
 
-    def is_valid_message(self, message):
-        return True
-
-    def handle_message(self, message):
+    def handle_data(self, message):
         if message.remote_jid not in self._rank:
             self._rank[message.remote_jid] = message, message, 0
         first_message, last_message, current_total = self._rank[message.remote_jid]
@@ -195,20 +224,17 @@ class LongestConversationInsighter(Insighter):
         return time_delta_to_str(value, ['h', 'm', 's'])
 
 
-class TopMessagesAmountInsighter(Insighter):
+class TopMessagesAmountInsighter(MessageInsighter):
     def __init__(self, title=None, format_=None, total=3):
         title = title or 'Top messages amount'
-        format_ = format_ or '{value} messages'
+        format_ = format_ or '{value:,} messages'
         
         super().__init__(title, format_)
         
         self._total = total
         self._winner = [None] * total
 
-    def is_valid_message(self, message):
-        return True
-
-    def handle_message(self, message):
+    def handle_data(self, message):
         self._rank[message.remote_jid] = self._rank.get(message.remote_jid, 0) + 1
 
         podium = self._winner.copy()
@@ -231,3 +257,49 @@ class TopMessagesAmountInsighter(Insighter):
             value = winner and self.format_value(self._rank[winner])
             winners.append(winner and Insighter.Winner(winner, None, value))
         return winners
+
+
+class LongestCallInsighter(CallInsighter):
+    def __init__(self, title=None, format_=None):
+        title = title or 'Longest call'
+        super().__init__(title, format_)
+
+    def handle_data(self, call):
+        if not self._winner or call.duration > self._winner.value \
+            or (call.duration == self._winner.value and call.date < self._winner.data.date):
+            self._winner = Insighter.Winner(call.remote_jid, call, call.duration)
+
+    def normalize_value(self, value):
+        return time_delta_to_str(value, ['h', 'm', 's'])
+
+
+class GreatestCallAmountInsighter(CallInsighter):
+    def __init__(self, title=None, format_=None):
+        title = title or 'Greatest amount of calls'
+        format_ = format_ or '{value} calls'
+        super().__init__(title, format_)
+    
+    def is_valid_data(self, call):
+        return call.duration > 0
+
+    def handle_data(self, call):
+        self._rank[call.remote_jid] = self._rank.get(call.remote_jid, 0) + 1
+        if not self._winner or self._rank[call.remote_jid] > self._winner.value:
+            self._winner = Insighter.Winner(call.remote_jid, None, self._rank[call.remote_jid])
+
+
+class LongestTimeInCallsInsighter(CallInsighter):
+    def __init__(self, title=None, format_=None):
+        title = title or 'Longest time in calls'
+        super().__init__(title, format_)
+    
+    def is_valid_data(self, call):
+        return call.duration > 0
+
+    def handle_data(self, call):
+        self._rank[call.remote_jid] = self._rank.get(call.remote_jid, 0) + call.duration
+        if not self._winner or self._rank[call.remote_jid] > self._winner.value:
+            self._winner = Insighter.Winner(call.remote_jid, None, self._rank[call.remote_jid])
+
+    def normalize_value(self, value):
+        return time_delta_to_str(value, ['h', 'm', 's'])
