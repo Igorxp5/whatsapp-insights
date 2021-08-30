@@ -201,8 +201,13 @@ def open_whatsapp_backup_activity(android):
     android.start_activity('com.whatsapp/.backup.google.SettingsGoogleDrive')
 
 def backup_whatsapp_messages(android, timeout=600):
-    open_whatsapp_backup_activity(android)
-    time.sleep(2)
+    open_whatsapp(android)
+    android.ui.waitfor_element(contentDesc='More options').tap()
+    android.ui.waitfor_element(text='Settings').tap()
+    android.ui.waitfor_element(text='Chats').tap()
+    android.scroll_down()
+    android.ui.waitfor_element(text='Chat backup').tap()
+
     android.ui.waitfor_element(text='BACK UP').tap()
     
     start_time = time.time()
@@ -231,7 +236,11 @@ def get_main_screen_contacts_info(android, include_groups=True, include_archive=
             logging.info(f'Getting contact info for "{display_name}"...')
             photo_element.tap()
             logging.info(f'Opening contact info...')
-            android.ui.waitfor_element(id='info_btn').tap()
+            try:
+                android.ui.waitfor_element(id='info_btn').tap()
+            except WaitforTimeout:
+                logging.info(f'"{display_name}" is an invalid contact, ignoring it...')
+                continue
             is_group = bool(android.ui.find_element(id='group_description') or android.ui.find_element(id='no_description_view'))
             if is_group:
                 logging.info(f'Contact is a group')

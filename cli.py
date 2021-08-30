@@ -2,6 +2,7 @@ import re
 import os
 import logging
 import argparse
+import tempfile
 import subprocess
 
 from libs import automation, utils
@@ -51,7 +52,12 @@ def extract_contacts(msg_store, serial, profile_pictures_dir, output):
         logging.error('No profile_pictures_dir provided')
         return
     
+    if not output:
+        logging.error('No output file provided')
+        return
+    
     os.makedirs(profile_pictures_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(output), exist_ok=True)
     
     android = Android(serial)
 
@@ -74,6 +80,56 @@ def extract_contacts(msg_store, serial, profile_pictures_dir, output):
 
     contact_manager.export_vcf(output, include_groups=False)
 
+def extract_database(backup, serial, key, output):
+    if not serial:
+        logging.error('No device serial provided')
+        return
+    
+    if serial not in get_adb_serials():
+        logging.error(f'Device "{serial}" not found')
+        return
+    
+    if not key:
+        logging.error('No key file provided')
+        return
+    
+    if not output:
+        logging.error('No output file provided')
+        return
+    
+    android = Android(serial)
+
+    if backup:
+        logging.warning('Before starting make sure your device is unlocked!')
+        input('Press Enter to continue...')
+        logging.info('Opening WhatsApp to backup the messages...')
+        try:
+            logging.info(f'Turning off Wi-fi...')
+            automation.set_wifi_state(android, False)
+            logging.info(f'Backuping WhatsApp messages...')
+            automation.backup_whatsapp_messages(android)
+            logging.info(f'Backup finished!')
+        finally:
+            logging.info(f'Turning on Wi-fi...')
+            automation.force_stop_whatsapp(android)
+            automation.set_wifi_state(android, True)
+    
+    logging.info(f'Pulling WhatsApp backup from the device...')
+    with tempfile.TemporaryDirectory() as temp_dir:
+        enc_db_path = os.path.join(temp_dir, 'msgstore.db.crypt14')
+        try:
+            android.pull('/sdcard/WhatsApp/Databases/msgstore.db.crypt14', enc_db_path)
+        except FileNotFoundError:
+            enc_db_path = os.path.join(temp_dir, 'msgstore.db.crypt12')
+            try:
+                android.pull('/sdcard/WhatsApp/Databases/msgstore.db.crypt12', enc_db_path)
+            except FileNotFoundError:
+                logging.error('WhatsApp database backup not found in "/sdcard/WhatsApp/Databases/"')
+                return
+        logging.info(f'Decrypting database backup...')
+        utils.decrypy_whatsapp_database(enc_db_path, key, output)    
+        logging.info(f'Database extracted!')
+
 
 if __name__ == '__main__':
     default_device_serial = next(iter(get_adb_serials(include_emulators=False)), None)
@@ -87,7 +143,7 @@ if __name__ == '__main__':
                                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     key_parser.add_argument('--no-verify-apk', action='store_true', default=False, dest='verify_apk', 
                             help='Verify WhatsApp APK signature before install in the emulator')
-    key_parser.add_argument('--no-backup', action='store_true', default=False, dest='backup', 
+    key_parser.add_argument('--no-backup', action='store_false', default=True, dest='backup', 
                             help='Do not backup WhatsApp messages before extracting the key (Not recommended).')
     key_parser.add_argument('--show-emulator', action='store_true', default=False, dest='show_emulator',
                             help='Show emulator window while the key extraction is happening')
@@ -98,9 +154,10 @@ if __name__ == '__main__':
     
     database_parser = subparsers.add_parser('extract-database', help='Extract WhatsApp database',
                                              formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    database_parser.add_argument('--no-backup', action='store_true', default=False, dest='backup', 
+    database_parser.add_argument('--no-backup', action='store_false', default=True, dest='backup', 
                                  help='Do not backup WhatsApp messages. Use the last backup created.')
-    database_parser.add_argument('--serial', dest='serial', help='Serial device for backup WhatsApp messages')
+    database_parser.add_argument('--serial', dest='serial', default=default_device_serial, 
+                                 help='Serial device for backup WhatsApp messages')
     database_parser.add_argument('--key', dest='key', default='./key', help='WhatsApp encrypt key file path')
     database_parser.add_argument('--output', dest='output', default='./msgstore.db', help='Messages database output file path')
     

@@ -222,6 +222,9 @@ class UIAutomator:
             kwargs['id'] = f'{self.android.current_package()}:id/{kwargs["id"]}'
             kwargs['resource-id'] = kwargs['id']
             del kwargs['id']
+        if 'contentDesc' in kwargs:
+            kwargs['content-desc'] = kwargs['contentDesc']
+            del kwargs['contentDesc']
         rules = [f'contains(@{k}, "{v.pattern}")' if isinstance(v, re.Pattern) else f'@{k}="{v}"' for k, v in kwargs.items()]
         rules = ' and '.join(rules)
         return self.tree.xpath(f'//node[{rules}]')
