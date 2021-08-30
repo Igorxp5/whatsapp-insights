@@ -1,3 +1,7 @@
+import io
+import base64
+
+
 def time_delta_to_str(time, units, round_=False):
     factors = {'d': 3600 * 24, 'h': 3600, 'm': 60, 's': 1}
     
@@ -14,3 +18,9 @@ def time_delta_to_str(time, units, round_=False):
             result.append(f'{value}{unit}')
     
     return ' '.join(result)
+
+def pillow_image_to_base64(image, format):
+    buffer = io.BytesIO()
+    image.save(buffer, format)
+    buffer.seek(0)
+    return base64.b64encode(buffer.getvalue())

@@ -89,6 +89,10 @@ class Insighter:
     def clear(self):
         self._winner = None
     
+    def get_rank(self):
+        # TODO
+        pass
+
     @staticmethod
     def normalize_value(value):
         return value
