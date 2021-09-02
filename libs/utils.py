@@ -4,6 +4,7 @@ import zlib
 import base64
 
 from Crypto.Cipher import AES
+from difflib import SequenceMatcher
 
 
 def time_delta_to_str(time, units, round_=False):
@@ -27,10 +28,10 @@ def pillow_image_to_base64(image, format):
     buffer = io.BytesIO()
     image.save(buffer, format)
     buffer.seek(0)
-    return base64.b64encode(buffer.getvalue())
+    return base64.b64encode(buffer.getvalue()).decode('ascii')
 
 
-def decrypy_whatsapp_database(db_file, key_file, output):
+def decrypt_whatsapp_database(db_file, key_file, output):
     # Credits to https://github.com/B16f00t/whapa/blob/master/libs/whacipher.py
 
     if os.path.getsize(key_file) != 158:
@@ -45,10 +46,10 @@ def decrypy_whatsapp_database(db_file, key_file, output):
     
     _, db_extension = os.path.splitext(db_file)
 
-    if db_extension == '.crypt12':
+    if db_extension == '.crypt14':
         data = db_data[191:]
         iv = db_data[67:83]
-    elif db_extension == '.crypt14':
+    elif db_extension == '.crypt12':
         data = db_data[67:-20]
         iv = db_data[51:67]
     else:
@@ -57,3 +58,7 @@ def decrypy_whatsapp_database(db_file, key_file, output):
     aes = AES.new(key, mode=AES.MODE_GCM, nonce=iv)
     with open(output, 'wb') as file:
         file.write(zlib.decompress(aes.decrypt(data)))
+
+
+def stringy_similarity(string, string2):
+    return SequenceMatcher(None, string, string2).ratio()

@@ -232,15 +232,16 @@ def draw_title(image, profile_image_path):
     draw_text(image, TITLE_TEXT.upper(), TITLE_COLOR, (text_x, TITLE_VERTICAL_MARGIN), TITLE_FONT)
     draw_profile_image(image, profile_image_path, x, y, (TITLE_IMAGE_SIZE, TITLE_IMAGE_SIZE))
 
-def draw_insights(image, insighters):
+def draw_insights(image, insighters, contacts):
     common_insighters = 0
     for insighter in insighters:
         if isinstance(insighter, TopMessagesAmountInsighter):
-            draw_top_messages_cards(image, insighter)
+            draw_top_messages_cards(image, insighter, contacts)
         else:
+            _, profile_image = contacts.get(insighter.winner.jid, (None, None))
             x = INSIGHT_CARD_LEFT_COLUMN_X if common_insighters % 2 else  INSIGHT_CARD_RIGHT_COLUMN_X
             y = CONTENT_BASE_Y + common_insighters // 2 * (INSIGHT_CARD_HEIGHT + INSIGHT_CARD_VERTICAL_MARGIN)
-            draw_insigher_card(image, DEFAULT_PROFILE_IMAGE, insighter.title, insighter.winner.value, x, y)
+            draw_insigher_card(image, profile_image or DEFAULT_PROFILE_IMAGE, insighter.title, insighter.winner.value, x, y)
             common_insighters += 1
 
 def draw_insigher_card(image, profile_image, title, value, x, y):
@@ -266,10 +267,11 @@ def draw_insigher_card(image, profile_image, title, value, x, y):
     draw.multiline_text((title_x, title_y), text='\n'.join(title_lines), fill=INSIGHT_CARD_TITLE_COLOR,
                         font=INSIGHT_CARD_TITLE_FONT, anchor='mm', spacing=INSIGHT_CARD_TITLE_LINE_SPACING, 
                         align='center')
+    profile_image = mask_image_by_circle(profile_image)
     profile_image = profile_image.resize((INSIGHT_CARD_IMAGE_SIZE, INSIGHT_CARD_IMAGE_SIZE), Image.ANTIALIAS)
     image.paste(profile_image, (profile_image_x, content_base_y), profile_image.convert('RGBA'))
 
-def draw_top_messages_cards(image, top_messages_insighter):
+def draw_top_messages_cards(image, top_messages_insighter, contacts):
     title = top_messages_insighter.title.upper()
     draw_text(image, title, TOP_MESSAGES_TITLE_COLOR, 
               (HORIZONTAL_PADDING, TOP_MESSAGES_BASE_Y), TOP_MESSAGES_TITLE_FONT)
@@ -278,10 +280,12 @@ def draw_top_messages_cards(image, top_messages_insighter):
     cards_base_y = (TOP_MESSAGES_BASE_Y + title_height + TOP_MESSAGES_TITLE_VERTICAL_MARGIN)
 
     for i, winner in enumerate(top_messages_insighter.winner):
-        title = f'{i + 1}º Person'
+        display_name, profile_image = contacts[winner.jid]
+        person_name = display_name.split(' ', 1)[0]
+        title = f'{i + 1}º {person_name}'
         title_color = TOP_MESSAGES_CARD_TITLE_COLORS[i]
         x = TOP_MESSAGES_CARD_HORIZONTAL_POSITIONS[i]
-        draw_top_messages_card(image, DEFAULT_PROFILE_IMAGE, title, title_color, winner.value, x, cards_base_y)
+        draw_top_messages_card(image, profile_image or DEFAULT_PROFILE_IMAGE, title, title_color, winner.value, x, cards_base_y)
 
 
 def draw_top_messages_card(image, profile_image, title, title_color, value, x, y):
@@ -301,6 +305,7 @@ def draw_top_messages_card(image, profile_image, title, title_color, value, x, y
     center_text(image, title, TOP_MESSAGES_CARD_TITLE_FONT, title_color, 
                 x, title_y, width=TOP_MESSAGES_CARD_WIDTH)
     
+    profile_image = mask_image_by_circle(profile_image)
     profile_image = profile_image.resize((INSIGHT_CARD_IMAGE_SIZE, INSIGHT_CARD_IMAGE_SIZE), Image.ANTIALIAS)
     image.paste(profile_image, (profile_image_x, content_base_y), profile_image.convert('RGBA'))
 
@@ -322,12 +327,12 @@ def draw_footer(image):
               text=FOOTER_LINK_TEXT, font=FOOTER_FONT, fill=FOOTER_TEXT_COLOR, 
               anchor='lm')
 
-def create_insights_image(insighters, profile_image_path, output_path='insights.png'):
+def create_insights_image(insighters, profile_image_path, contacts, output_path='insights.png'):
     image = Image.new('RGBA', IMAGE_SIZE, color=IMAGE_BACKGROUND)
 
     draw_title(image, profile_image_path)
     
-    draw_insights(image, insighters)
+    draw_insights(image, insighters, contacts)
 
     if FOOTER_ENABLED:
         draw_footer(image)

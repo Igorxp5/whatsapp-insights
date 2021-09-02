@@ -1,6 +1,8 @@
 import re
+import base64
 import sqlite3
 import vobject
+import logging
 import itertools
 
 vobject.vcard.wacky_apple_photo_serialize = False
@@ -83,6 +85,24 @@ class ContactManager:
                 display_name = None
                 if JID_REGEXP.match(jid):
                     contact_manager.add_contact(jid, display_name)
+        return contact_manager
+    
+    @staticmethod
+    def from_vcf(file_path):
+        contact_manager = ContactManager()
+        with open(file_path) as file:
+            try:
+                for entry in vobject.readComponents(file):
+                    if hasattr(entry, 'tel'):
+                        for tel in entry.contents['tel']:
+                            phone_number = re.sub(r'[\(\s\)]', '', tel.value)
+                            jid = phone_number.strip('+') + '@s.whatsapp.net'
+                            display_name = entry.fn.value if hasattr(entry, 'fn') else phone_number
+                            contact = contact_manager.add_contact(jid, display_name)
+                            if hasattr(entry, 'photo'):
+                                contact.profile_image = base64.b64encode(entry.photo.value).decode('ascii')
+            except vobject.base.ParseError:
+                logging.warning('Failed to parse some entries in the vcf file')
         return contact_manager
 
 

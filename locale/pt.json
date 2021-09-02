@@ -1,0 +1,38 @@
+{
+    "TopMessagesAmountInsighter": {
+        "title": "Maior quantidade de mensagens",
+        "format": "{value:,} mensagens"
+    },
+    "LongestAudioInsighter": {
+        "title": "Áudio de maior duração",
+        "format": null
+    },
+    "GreatestAudioAmountInsighter": {
+        "title": "Maior quantidade de áudios",
+        "format": "{value} audios"
+    },
+    "GreatestAmountOfDaysTalkingInsighter": {
+        "title": "Maior quantidade de dias com conversa",
+        "format": "{value} dias"
+    },
+    "GreatestPhotoAmountInsighter": {
+        "title": "Maior quantidade de fotos",
+        "format": "{value} fotos"
+    },
+    "LongestConversationInsighter": {
+        "title": "Maior tempo ininterrupto de conversa",
+        "format": null
+    },
+    "LongestCallInsighter": {
+        "title": "Chamada de maior duração",
+        "format": null
+    },
+    "GreatestCallAmountInsighter": {
+        "title": "Maior quantidade de chamadas",
+        "format": "{value} chamadas"
+    },
+    "LongestTimeInCallsInsighter": {
+        "title": "Maior tempo em chamadas",
+        "format": null
+    }
+}

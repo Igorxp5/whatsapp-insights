@@ -1,12 +1,20 @@
+import io
 import re
 import os
+import json
+import base64
 import logging
 import argparse
 import tempfile
 import subprocess
 
+from PIL import Image
+
 from libs import automation, utils
+from libs import insighters_image
 from libs.android import Android
+from libs.calls import CallManager
+from libs.messages import MessageManager
 from libs.contacts import JID_REGEXP, ContactManager
 from libs.insighters import InsighterManager, LongestAudioInsighter, \
     GreatestAudioAmountInsighter, GreatestAmountOfDaysTalkingInsighter, \
@@ -14,8 +22,11 @@ from libs.insighters import InsighterManager, LongestAudioInsighter, \
     GreatestPhotoAmountInsighter, LongestCallInsighter, \
     GreatestCallAmountInsighter, LongestTimeInCallsInsighter
 
+from libs.insighters_image import create_insights_image
+
 ANDROID_HOME = os.environ.get('ANDROID_HOME')
 SDK_MANAGER = os.environ.get('SDK_MANAGER')
+
 INSIGHTERS = {
     'LongestAudioInsighter': LongestAudioInsighter,
     'GreatestAudioAmountInsighter': GreatestAudioAmountInsighter,
@@ -27,6 +38,9 @@ INSIGHTERS = {
     'GreatestCallAmountInsighter': GreatestCallAmountInsighter,
     'LongestTimeInCallsInsighter': LongestTimeInCallsInsighter,
 }
+
+DEFAULT_PROFILE_IMAGE = os.path.join(os.path.dirname(__file__), 'images', 'profile-image.png')
+LOCALE_DIR = os.path.join(os.path.dirname(__file__), 'locale')
 
 
 def get_adb_serials(include_emulators=True):
@@ -131,6 +145,102 @@ def extract_database(backup, serial, key, output):
         logging.info(f'Database extracted!')
 
 
+def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters, output):
+    try:
+        insighters_classes = [INSIGHTERS[i] for i in insighters]
+    except KeyError as error:
+        logging.error(f'Invalid insighter "{error.args[0]}"')
+        return
+    
+    if not msg_store or not os.path.exists(msg_store):
+        logging.error(f'Messages database not found in path "{msg_store}"')
+        return
+    
+    if not output:
+        logging.error('No output file provided')
+        return
+    
+    locale_strings = dict()
+    if locale:
+        locale_path = os.path.join(LOCALE_DIR, f'{locale}.json')
+        if not os.path.exists(locale_path):
+            logging.error(f'Could not find locale file for "{locale}"')
+            return
+        else:
+            logging.info(f'Loading locale file "{locale}"...')
+            with open(locale_path, encoding='utf-8') as file:
+                locale_strings = json.load(file)
+    
+    logging.info('Loading contacts...')
+    vcf_contact_manager = ContactManager.from_vcf(contacts)
+    contact_manager = ContactManager.from_msgtore_db(msg_store)
+    
+    logging.info('Getting contact and profile pictures from vcf...')
+    for contact in contact_manager.get_users():
+        for vcf_contact in vcf_contact_manager.get_users():
+            if utils.stringy_similarity(vcf_contact.jid, contact.jid) >= 0.95:
+                if not contact.display_name:
+                    contact.display_name = vcf_contact.display_name
+                contact.profile_image = vcf_contact.profile_image
+                break
+
+    logging.info('Identifying profile pictures in the directory provided...')
+    profile_pictures = dict()
+    if profile_pictures_dir:
+        for filename in os.listdir(profile_pictures_dir):
+            match = JID_REGEXP.search(filename)
+            if match:
+                with open(os.path.join(profile_pictures_dir, filename), 'rb') as file:
+                    profile_pictures[match.group(0)] = base64.b64encode(file.read()).decode('ascii')
+    
+    insighter_manager = InsighterManager(contact_manager=contact_manager, group_by_name=True)
+
+    for insighter in insighters_classes:
+        insighter_strings = locale_strings.get(insighter.__name__, {})
+        title = insighter_strings.get('title')
+        format_ = insighter_strings.get('format')
+        insighter_manager.add_insighter(insighter(title=title, format_=format_))
+
+    logging.info('Loading call logs...')
+    call_manager = CallManager.from_msgstore_db('msgstore.db')
+    
+    logging.info('Loading messages...')
+    message_manager = MessageManager.from_msgstore_db('msgstore.db')
+
+    logging.info('Applying messages in the insighters...')
+    for message in message_manager:
+        insighter_manager.update(message)
+
+    logging.info('Applying calls in the insighters...')
+    for call in call_manager:
+        insighter_manager.update(call)
+
+    logging.info('Result')
+    logging.info('')
+    for insighter in insighter_manager.insighters:
+        logging.info(f'{insighter.title}')
+        winners = insighter.winner
+        if not isinstance(insighter.winner, list):
+            winners = [insighter.winner]
+        for winner in winners:
+            logging.info(f'{contact_manager.get(winner.jid).display_name}: {winner.value}')
+            if winner.data:
+                logging.info(f'{repr(winner.data)}')
+        logging.info('')
+
+
+    logging.info('Grouping contacts and profile pictures data...')
+    image_contacts = dict()
+    for contact in contact_manager.get_users():
+        profile_picture = profile_pictures.get(contact.jid, contact.profile_image)
+        if profile_picture:
+            profile_picture = Image.open(io.BytesIO(base64.b64decode(profile_picture)))
+        image_contacts[contact.jid] = contact.display_name, profile_picture
+    
+    logging.info('Generating the image...')
+    create_insights_image(insighter_manager.insighters, '8163093.jpg', image_contacts, output_path=output)
+
+
 if __name__ == '__main__':
     default_device_serial = next(iter(get_adb_serials(include_emulators=False)), None)
 
@@ -173,22 +283,22 @@ if __name__ == '__main__':
     image_parser = subparsers.add_parser('generate-image', help='Generate Insights image',
                                          formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     image_parser.add_argument('--msg-store', dest='msg_store', default='msgstore.db', help='WhatsApp database file path')
-    image_parser.add_argument('--locale', dest='locale', default='en_US', help='Output language texts')
+    image_parser.add_argument('--locale', dest='locale', default='en', help='Output language texts')
     image_parser.add_argument('--profile-pictures-dir', dest='profile_pictures_dir', default='./profile_pictures',
                               help='Directory to look for contact profile pictures. ' 
                                    'It will be used default profile picture when the program do not find')
     image_parser.add_argument('--contacts', dest='contacts', default='./contacts.vcf', help='Contacts export file path')
     image_parser.add_argument('--insighters', nargs='+', dest='insighters', choices=list(INSIGHTERS.keys()),
-                              default=['TopMessagesAmountInsighter', 'LongestAudioInsighter', 'GreatestAudioAmountInsighter', 
-                                       'GreatestAmountOfDaysTalkingInsighter', 'GreatestPhotoAmountInsighter', 'LongestConversationInsighter', 
-                                       'LongestCallInsighter', 'GreatestCallAmountInsighter', 'LongestTimeInCallsInsighter'], 
+                              default=['TopMessagesAmountInsighter', 'LongestConversationInsighter', 'LongestAudioInsighter',
+                                        'GreatestAudioAmountInsighter', 'GreatestPhotoAmountInsighter', 
+                                        'GreatestAmountOfDaysTalkingInsighter', 'LongestTimeInCallsInsighter'], 
                               help='Contacts export file path')
     image_parser.add_argument('--output', dest='output', default='./insights.png', help='Insights output image file')
 
     video_parser = subparsers.add_parser('generate-video', help='Generate Chart Race video',
                                          formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     video_parser.add_argument('--msg-store', dest='msg_store', default='msgstore.db', help='WhatsApp database file path')
-    video_parser.add_argument('--locale', dest='locale', default='en_US', help='Output language texts')
+    video_parser.add_argument('--locale', dest='locale', default='en', help='Output language texts')
     video_parser.add_argument('--profile-pictures-dir', dest='profile_pictures_dir', default='./profile_pictures',
                               help='Directory to look for contact profile pictures. ' 
                                    'It will be used default profile picture when the program do not find')
@@ -198,7 +308,7 @@ if __name__ == '__main__':
     rank_parser = subparsers.add_parser('generate-rank-file', help='Generate JSON file containing the rank of each ',
                                                   formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     rank_parser.add_argument('--msg-store', dest='msg_store', default='msgstore.db', help='WhatsApp database file path')
-    rank_parser.add_argument('--locale', dest='locale', default='en_US', help='Output language texts')
+    rank_parser.add_argument('--locale', dest='locale', default='en', help='Output language texts')
     rank_parser.add_argument('--profile-pictures-dir', dest='profile_pictures_dir', default='./profile_pictures',
                               help='Directory to look for contact profile pictures. ' 
                                    'It will be used default profile picture when the program do not find')
