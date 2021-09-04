@@ -22,6 +22,7 @@ from libs.insighters import InsighterManager, LongestAudioInsighter, \
     GreatestPhotoAmountInsighter, LongestCallInsighter, \
     GreatestCallAmountInsighter, LongestTimeInCallsInsighter
 
+from libs.chart_race import create_chart_race_video
 from libs.insighters_image import create_insights_image
 
 ANDROID_HOME = os.environ.get('ANDROID_HOME')
@@ -202,10 +203,10 @@ def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters
         insighter_manager.add_insighter(insighter(title=title, format_=format_))
 
     logging.info('Loading call logs...')
-    call_manager = CallManager.from_msgstore_db('msgstore.db')
+    call_manager = CallManager.from_msgstore_db(msg_store)
     
     logging.info('Loading messages...')
-    message_manager = MessageManager.from_msgstore_db('msgstore.db')
+    message_manager = MessageManager.from_msgstore_db(msg_store)
 
     logging.info('Applying messages in the insighters...')
     for message in message_manager:
@@ -239,6 +240,43 @@ def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters
     
     logging.info('Generating the image...')
     create_insights_image(insighter_manager.insighters, '8163093.jpg', image_contacts, output_path=output)
+
+
+def generate_video(msg_store, locale, profile_pictures_dir, contacts, output, group_contact_by_name=True):
+    if not msg_store or not os.path.exists(msg_store):
+        logging.error(f'Messages database not found in path "{msg_store}"')
+        return
+    
+    if not output:
+        logging.error('No output file provided')
+        return
+    
+    logging.info('Loading contacts...')
+    vcf_contact_manager = ContactManager.from_vcf(contacts)
+    contact_manager = ContactManager.from_msgtore_db(msg_store)
+    
+    logging.info('Getting contact and profile pictures from vcf...')
+    for contact in contact_manager.get_users():
+        for vcf_contact in vcf_contact_manager.get_users():
+            if utils.stringy_similarity(vcf_contact.jid, contact.jid) >= 0.95:
+                if not contact.display_name:
+                    contact_manager.update_contact_diplay_name(contact.jid, vcf_contact.display_name)
+                contact.profile_image = vcf_contact.profile_image
+                break
+
+    logging.info('Identifying profile pictures in the directory provided...')
+    if profile_pictures_dir:
+        for filename in os.listdir(profile_pictures_dir):
+            match = JID_REGEXP.search(filename)
+            if match:
+                contact = contact_manager.get(match.group(0))
+                if contact:
+                    with open(os.path.join(profile_pictures_dir, filename), 'rb') as file:
+                        contact.profile_image = base64.b64encode(file.read()).decode('ascii')
+    
+    logging.info('Loading messages...')
+    message_manager = MessageManager.from_msgstore_db(msg_store)
+    create_chart_race_video(contact_manager, message_manager, output, locale, group_contact_by_name=group_contact_by_name)
 
 
 if __name__ == '__main__':
@@ -283,7 +321,7 @@ if __name__ == '__main__':
     image_parser = subparsers.add_parser('generate-image', help='Generate Insights image',
                                          formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     image_parser.add_argument('--msg-store', dest='msg_store', default='msgstore.db', help='WhatsApp database file path')
-    image_parser.add_argument('--locale', dest='locale', default='en', help='Output language texts')
+    image_parser.add_argument('--locale', dest='locale', default='en_US', help='Output language texts')
     image_parser.add_argument('--profile-pictures-dir', dest='profile_pictures_dir', default='./profile_pictures',
                               help='Directory to look for contact profile pictures. ' 
                                    'It will be used default profile picture when the program do not find')
@@ -298,7 +336,7 @@ if __name__ == '__main__':
     video_parser = subparsers.add_parser('generate-video', help='Generate Chart Race video',
                                          formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     video_parser.add_argument('--msg-store', dest='msg_store', default='msgstore.db', help='WhatsApp database file path')
-    video_parser.add_argument('--locale', dest='locale', default='en', help='Output language texts')
+    video_parser.add_argument('--locale', dest='locale', default='en_US', help='Output language texts')
     video_parser.add_argument('--profile-pictures-dir', dest='profile_pictures_dir', default='./profile_pictures',
                               help='Directory to look for contact profile pictures. ' 
                                    'It will be used default profile picture when the program do not find')
@@ -308,7 +346,7 @@ if __name__ == '__main__':
     rank_parser = subparsers.add_parser('generate-rank-file', help='Generate JSON file containing the rank of each ',
                                                   formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     rank_parser.add_argument('--msg-store', dest='msg_store', default='msgstore.db', help='WhatsApp database file path')
-    rank_parser.add_argument('--locale', dest='locale', default='en', help='Output language texts')
+    rank_parser.add_argument('--locale', dest='locale', default='en_US', help='Output language texts')
     rank_parser.add_argument('--profile-pictures-dir', dest='profile_pictures_dir', default='./profile_pictures',
                               help='Directory to look for contact profile pictures. ' 
                                    'It will be used default profile picture when the program do not find')

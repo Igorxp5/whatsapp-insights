@@ -223,7 +223,7 @@ def multiline_text_lines(text, max_length_per_line):
     return lines
 
 def draw_title(image, profile_image_path):
-    text_width, text_height = TITLE_FONT.getsize(TITLE_TEXT)
+    text_width, _ = TITLE_FONT.getsize(TITLE_TEXT)
     title_width = TITLE_IMAGE_SIZE + TITLE_HORIZONTAL_MARGIN + text_width
     x = (IMAGE_WIDTH - title_width) // 2
     y = TITLE_VERTICAL_MARGIN - 15  # clearing the edge of the font (15)

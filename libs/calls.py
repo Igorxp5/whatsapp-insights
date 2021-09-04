@@ -38,7 +38,3 @@ class Call:
 
     def __repr__(self):
         return f'{self.__class__.__name__}{(self.remote_jid, self.from_me, self.date, self.is_video_call, self.duration, self.result)}'
-
-if __name__ == '__main__':
-    call_manager = CallManager.from_msgstore_db('msgstore.db')
-    print(call_manager)

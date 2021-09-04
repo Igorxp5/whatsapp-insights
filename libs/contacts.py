@@ -43,11 +43,19 @@ class ContactManager:
     def add_contact(self, jid, display_name):
         contact = Contact(jid, display_name)
         self._get_jid_dictionary(jid)[jid] = contact
-        if self._get_jid_dictionary(jid)[jid] is self._users:
+        if self._get_jid_dictionary(jid) is self._users:
             if contact.display_name not in self._display_names:
                 self._display_names[contact.display_name] = []
             self._display_names[contact.display_name].append(contact)
         return contact
+    
+    def update_contact_diplay_name(self, jid, display_name):
+        if self._get_jid_dictionary(jid) is self._users:
+            contact = self.get(jid)
+            contact.display_name = display_name
+            if contact.display_name not in self._display_names:
+                self._display_names[contact.display_name] = []
+            self._display_names[contact.display_name].append(contact)
 
     def get_contacts_by_display_name(self, display_name):
         return list(self._display_names.get(display_name, []))
