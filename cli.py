@@ -54,51 +54,6 @@ def get_adb_serials(include_emulators=True):
     return devices
 
 
-def extract_contacts(msg_store, serial, profile_pictures_dir, output):
-    if not serial:
-        logging.error('No device serial provided')
-        return
-    
-    if serial not in get_adb_serials():
-        logging.error(f'Device "{serial}" not found')
-        return
-    
-    if not msg_store or not os.path.exists(msg_store):
-        logging.error(f'Messages database not found in path "{msg_store}"')
-        return
-    
-    if not profile_pictures_dir:
-        logging.error('No profile_pictures_dir provided')
-        return
-    
-    if not output:
-        logging.error('No output file provided')
-        return
-    
-    os.makedirs(profile_pictures_dir, exist_ok=True)
-    os.makedirs(os.path.dirname(output), exist_ok=True)
-    
-    android = Android(serial)
-
-    logging.warning('Before starting make sure your device is unlocked!')
-    input('Press Enter to continue...')
-
-    automation.force_stop_whatsapp(android)
-    contacts = automation.get_main_screen_contacts_info(android, include_groups=False)
-    contact_manager = ContactManager()
-
-    for phone_number, (display_name, photo, is_group) in contacts.items():
-        logging.info(f'Adding "{display_name}" to Contact Manager')
-        jid = re.sub(r'[\+\s-\(\)]', '', phone_number) + '@s.whatsapp.net'
-        contact = contact_manager.add_contact(jid, display_name)
-        if photo:
-            contact.profile_image = utils.pillow_image_to_base64(photo, format='PNG') 
-            profile_picture_path = os.path.join(profile_pictures_dir, jid)
-            logging.info(f'Saving "{display_name}" profile picture at "{profile_picture_path}"')
-            photo.save(profile_picture_path, format='PNG')
-
-    contact_manager.export_vcf(output, include_groups=False)
-
 def extract_database(backup, serial, key, output):
     if not serial:
         logging.error('No device serial provided')
@@ -450,15 +405,6 @@ if __name__ == '__main__':
                                  help='Serial device for backup WhatsApp messages')
     database_parser.add_argument('--key', dest='key', default='./key', help='WhatsApp encrypt key file path')
     database_parser.add_argument('--output', dest='output', default='./msgstore.db', help='Messages database output file path')
-    
-    contacts_parser = subparsers.add_parser('extract-contacts', help='Extract WhatsApp contacts',
-                                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    contacts_parser.add_argument('--msg-store', dest='msg_store', default='msgstore.db', help='WhatsApp database file path')
-    contacts_parser.add_argument('--serial', dest='serial', default=default_device_serial,
-                                 help='Serial device for pull the contacts')
-    contacts_parser.add_argument('--profile-pictures-dir', dest='profile_pictures_dir', default='./profile_pictures',
-                                 help='Directory for pull the contact profile pictures. If the directory does not exist, it will be created')
-    contacts_parser.add_argument('--output', dest='output', default='./contacts.vcf', help='VCF contacts output file path')
 
     profile_images_parser = subparsers.add_parser('extract-profile-images', help='Extract contacts profile images',
                                              formatter_class=argparse.ArgumentDefaultsHelpFormatter)
