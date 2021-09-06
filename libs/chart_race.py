@@ -3,17 +3,16 @@ import os
 import cv2
 import tqdm
 import math
-import locale
 import base64
 import random
 import logging
 import colorsys
 import datetime
-import contextlib
 import collections
 
 import numpy as np
 
+from . import utils
 from .contacts import Contact, JID_REGEXP
 
 from PIL import Image, ImageDraw, ImageFont
@@ -336,16 +335,6 @@ def frame(contacts_bars, scale, date, resize_profile_image=True):
     return image
 
 
-@contextlib.contextmanager
-def _context_locale(locale_):
-    default_locale = f'{locale.getdefaultlocale()[0]}.UTF-8'
-    locale.setlocale(locale.LC_ALL, locale_)
-    try:
-        yield
-    finally:
-        locale.setlocale(locale.LC_ALL, default_locale)
-
-
 def generate_frame_data(frame_messages, podium, profile_images, contact_colors, last_scale):
     for frame_message in frame_messages:
         podium.increment_user_messages(frame_message.remote_jid, 1)
@@ -449,7 +438,7 @@ def create_chart_race_video(contact_manager, message_manager, output, locale_='e
     total_frames = (end_date - start_date).total_seconds() / elapsed_timestamp_by_frame
     fourcc = cv2.VideoWriter.fourcc(*'MP4V')
     video_writer = cv2.VideoWriter(output, fourcc, VIDEO_FRAME_RATE, IMAGE_SIZE)
-    with _context_locale(locale_):
+    with utils.context_locale(locale_):
         frames = generate_video_frames(messages, start_date, elapsed_timestamp_by_frame, podium, profile_images, contact_colors)
         tqdm_iterator = tqdm.tqdm(frames, total=total_frames)
         for frame in tqdm_iterator:

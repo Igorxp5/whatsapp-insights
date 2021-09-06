@@ -3,6 +3,7 @@ import io
 import re
 import base64
 import tkinter
+import urllib.parse
 
 from PIL import ImageTk, Image
 from threading import Thread, Event
@@ -40,6 +41,11 @@ class WhatsAppWeb:
             window.whatsapp_api.getContactProfileImage(arguments[0]).then((url) => resolve(url));
         """, jid)
     
+    def get_user_profile_image_url(self):
+        url = self._driver.find_element_by_xpath('//div[@id="side"]//img').get_attribute('src')
+        url = 'https' + url.lstrip('https://web.whatsapp.com/pp?e=')
+        return urllib.parse.unquote(url)
+
     def _login(self):
         def _check_login(quit_event):
             try:

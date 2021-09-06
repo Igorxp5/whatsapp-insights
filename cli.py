@@ -12,14 +12,13 @@ import subprocess
 from PIL import Image
 
 from libs import automation, utils
-from libs import insighters_image
 from libs.android import Android
 from libs.calls import CallManager
 from libs.messages import MessageManager
 from libs.contacts import JID_REGEXP, ContactManager
 from libs.insighters import InsighterManager, LongestAudioInsighter, \
     GreatestAudioAmountInsighter, GreatestAmountOfDaysTalkingInsighter, \
-    LongestConversationInsighter, TopMessagesAmountInsighter, \
+    LongestConversationInsighter, GreatestMessagesAmountInsighter, \
     GreatestPhotoAmountInsighter, LongestCallInsighter, \
     GreatestCallAmountInsighter, LongestTimeInCallsInsighter
 
@@ -35,7 +34,7 @@ INSIGHTERS = {
     'GreatestAudioAmountInsighter': GreatestAudioAmountInsighter,
     'GreatestAmountOfDaysTalkingInsighter': GreatestAmountOfDaysTalkingInsighter,
     'GreatestPhotoAmountInsighter': GreatestPhotoAmountInsighter,
-    'TopMessagesAmountInsighter': TopMessagesAmountInsighter,
+    'GreatestMessagesAmountInsighter': GreatestMessagesAmountInsighter,
     'LongestConversationInsighter': LongestConversationInsighter,
     'LongestCallInsighter': LongestCallInsighter,
     'GreatestCallAmountInsighter': GreatestCallAmountInsighter,
@@ -45,6 +44,7 @@ INSIGHTERS = {
 DEFAULT_PROFILE_IMAGE = os.path.join(os.path.dirname(__file__), 'images', 'profile-image.png')
 LOCALE_DIR = os.path.join(os.path.dirname(__file__), 'locale')
 
+RANK_DATE_FORMAT = '%d %b %Y %H:%M:%S'
 CHROMEDRIVER_BIN = 'chromedriver.exe' if os.name == 'nt' else 'chromedriver'
 
 
@@ -150,13 +150,19 @@ def extract_database(backup, serial, key, output):
         logging.info(f'Database extracted!')
 
 
-def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters, output):
+def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters, top_insighter, output):
     try:
         insighters_classes = [INSIGHTERS[i] for i in insighters]
     except KeyError as error:
         logging.error(f'Invalid insighter "{error.args[0]}"')
         return
-    
+    else:
+        if top_insighter:
+            if top_insighter not in INSIGHTERS:
+                logging.error(f'Invalid insighter "{top_insighter}"')
+                return
+            insighters_classes.insert(0, INSIGHTERS[top_insighter])
+
     if not msg_store or not os.path.exists(msg_store):
         logging.error(f'Messages database not found in path "{msg_store}"')
         return
@@ -185,7 +191,7 @@ def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters
         for vcf_contact in vcf_contact_manager.get_users():
             if utils.stringy_similarity(vcf_contact.jid, contact.jid) >= 0.95:
                 if not contact.display_name:
-                    contact.display_name = vcf_contact.display_name
+                    contact_manager.update_contact_diplay_name(contact.jid, vcf_contact.display_name)
                 contact.profile_image = vcf_contact.profile_image
                 break
 
@@ -224,15 +230,11 @@ def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters
     logging.info('')
     for insighter in insighter_manager.insighters:
         logging.info(f'{insighter.title}')
-        winners = insighter.winner
-        if not isinstance(insighter.winner, list):
-            winners = [insighter.winner]
-        for winner in winners:
-            logging.info(f'{contact_manager.get(winner.jid).display_name}: {winner.value}')
-            if winner.data:
-                logging.info(f'{repr(winner.data)}')
+        winner = insighter.winner
+        logging.info(f'{contact_manager.get(winner.jid).display_name}: {winner.formatted_value}')
+        if winner.track_object:
+            logging.info(f'{repr(winner.track_object)}')
         logging.info('')
-
 
     logging.info('Grouping contacts and profile pictures data...')
     image_contacts = dict()
@@ -243,10 +245,18 @@ def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters
         image_contacts[contact.jid] = contact.display_name, profile_picture
     
     logging.info('Generating the image...')
-    create_insights_image(insighter_manager.insighters, '8163093.jpg', image_contacts, output_path=output)
+    top_insighter = top_insighter and insighter_manager.insighters[0]
+    common_insighters = insighter_manager.insighters[1:] if top_insighter else insighter_manager.insighters
+    user_profile_image_path = profile_pictures_dir and os.path.join(profile_pictures_dir, 'me.jpg')
+    user_profile_image = user_profile_image_path if os.path.exists(user_profile_image_path) else None
+    
+    if not user_profile_image:
+        logging.warning(f'User profile image not found in "{user_profile_image_path}"')
+
+    create_insights_image(common_insighters, image_contacts, user_profile_image, top_insighter=top_insighter, output_path=output)
 
 
-def generate_video(msg_store, locale, profile_pictures_dir, contacts, output, group_contact_by_name=True):
+def generate_video(msg_store, locale, profile_pictures_dir, contacts, output):
     if not msg_store or not os.path.exists(msg_store):
         logging.error(f'Messages database not found in path "{msg_store}"')
         return
@@ -280,7 +290,7 @@ def generate_video(msg_store, locale, profile_pictures_dir, contacts, output, gr
     
     logging.info('Loading messages...')
     message_manager = MessageManager.from_msgstore_db(msg_store)
-    create_chart_race_video(contact_manager, message_manager, output, locale, group_contact_by_name=group_contact_by_name)
+    create_chart_race_video(contact_manager, message_manager, output, locale, group_contact_by_name=True)
 
 
 def extract_profile_images(msg_store, output, chromedriver):
@@ -308,6 +318,13 @@ def extract_profile_images(msg_store, output, chromedriver):
     logging.info('Logging into WhatsApp Web...')
     whatsapp_web = WhatsAppWeb(chromedriver)
 
+    logging.info(f'Getting user profile image...')
+    user_image_url = whatsapp_web.get_user_profile_image_url()
+    with open(os.path.join(output, 'me.jpg'), 'wb') as file:
+        response = requests.get(user_image_url)
+        file.write(response.content)
+        logging.info(f'User profile image has been saved!')
+
     for contact in contact_manager.get_users():
         phone_number = JID_REGEXP.search(contact.jid).group(1)
         logging.info(f'Getting profile image for "{phone_number}"...')
@@ -319,6 +336,89 @@ def extract_profile_images(msg_store, output, chromedriver):
             logging.info(f'Profile image for "{phone_number}" has been saved!')
         else:
             logging.info(f'"{phone_number}" does not have profile image!')
+
+
+def generate_rank_file(msg_store, locale, contacts, insighters, output):
+    try:
+        insighters_classes = [INSIGHTERS[i] for i in insighters]
+    except KeyError as error:
+        logging.error(f'Invalid insighter "{error.args[0]}"')
+        return
+    
+    if not msg_store or not os.path.exists(msg_store):
+        logging.error(f'Messages database not found in path "{msg_store}"')
+        return
+    
+    if not output:
+        logging.error('No output file provided')
+        return
+    
+    locale_strings = dict()
+    if locale:
+        locale_path = os.path.join(LOCALE_DIR, f'{locale}.json')
+        if not os.path.exists(locale_path):
+            logging.error(f'Could not find locale file for "{locale}"')
+            return
+        else:
+            logging.info(f'Loading locale file "{locale}"...')
+            with open(locale_path, encoding='utf-8') as file:
+                locale_strings = json.load(file)
+    
+    logging.info('Loading contacts...')
+    vcf_contact_manager = ContactManager.from_vcf(contacts)
+    contact_manager = ContactManager.from_msgtore_db(msg_store)
+    
+    logging.info('Getting contact from vcf...')
+    for contact in contact_manager.get_users():
+        for vcf_contact in vcf_contact_manager.get_users():
+            if utils.stringy_similarity(vcf_contact.jid, contact.jid) >= 0.95:
+                if not contact.display_name:
+                    contact_manager.update_contact_diplay_name(contact.jid, vcf_contact.display_name)
+                break
+    
+    insighter_manager = InsighterManager(contact_manager=contact_manager, group_by_name=True)
+
+    for insighter in insighters_classes:
+        insighter_strings = locale_strings.get(insighter.__name__, {})
+        title = insighter_strings.get('title')
+        format_ = insighter_strings.get('format')
+        insighter_manager.add_insighter(insighter(title=title, format_=format_))
+
+    logging.info('Loading call logs...')
+    call_manager = CallManager.from_msgstore_db(msg_store)
+    
+    logging.info('Loading messages...')
+    message_manager = MessageManager.from_msgstore_db(msg_store)
+
+    logging.info('Applying messages in the insighters...')
+    for message in message_manager:
+        insighter_manager.update(message)
+
+    logging.info('Applying calls in the insighters...')
+    for call in call_manager:
+        insighter_manager.update(call)
+    
+    result = dict()
+
+    with utils.context_locale(locale):
+        for insighter in insighter_manager.insighters:
+            properties = dict()
+            properties['title'] = insighter.title
+            properties['rank'] = []
+            for rank_item in insighter.get_rank():
+                contact = contact_manager.get(rank_item.jid)
+                properties['rank'].append({
+                    'jid': rank_item.jid,
+                    'contact_name': contact and contact.display_name,
+                    'value': rank_item.value,
+                    'formatted_value': rank_item.formatted_value,
+                    'date': rank_item.track_object and rank_item.track_object.date.strftime(RANK_DATE_FORMAT)
+                })
+
+            result[insighter.__class__.__name__] = properties
+
+    with open(output, 'w') as file:
+        json.dump(result, file, indent=4)
 
 
 if __name__ == '__main__':
@@ -376,10 +476,11 @@ if __name__ == '__main__':
                                    'It will be used default profile picture when the program do not find')
     image_parser.add_argument('--contacts', dest='contacts', default='./contacts.vcf', help='Contacts export file path')
     image_parser.add_argument('--insighters', nargs='+', dest='insighters', choices=list(INSIGHTERS.keys()),
-                              default=['TopMessagesAmountInsighter', 'LongestConversationInsighter', 'LongestAudioInsighter',
-                                        'GreatestAudioAmountInsighter', 'GreatestPhotoAmountInsighter', 
-                                        'GreatestAmountOfDaysTalkingInsighter', 'LongestTimeInCallsInsighter'], 
-                              help='Contacts export file path')
+                              default=['LongestConversationInsighter', 'LongestAudioInsighter',
+                                       'GreatestAudioAmountInsighter', 'GreatestPhotoAmountInsighter', 
+                                       'GreatestAmountOfDaysTalkingInsighter', 'LongestTimeInCallsInsighter'])
+    image_parser.add_argument('--top-insighter', dest='top_insighter', default='GreatestMessagesAmountInsighter',
+                              help='Insigther result to show the top three in the image')
     image_parser.add_argument('--output', dest='output', default='./insights.png', help='Insights output image file')
 
     video_parser = subparsers.add_parser('generate-video', help='Generate Chart Race video',
@@ -392,14 +493,13 @@ if __name__ == '__main__':
     video_parser.add_argument('--contacts', dest='contacts', default='./contacts.vcf', help='Contacts export file path')
     video_parser.add_argument('--output', dest='output', default='./chat-race.mp4', help='Chart Race output video file')
 
-    rank_parser = subparsers.add_parser('generate-rank-file', help='Generate JSON file containing the rank of each ',
+    rank_parser = subparsers.add_parser('generate-rank-file', help='Generate JSON file containing the rank of each insighter',
                                                   formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     rank_parser.add_argument('--msg-store', dest='msg_store', default='msgstore.db', help='WhatsApp database file path')
     rank_parser.add_argument('--locale', dest='locale', default='en_US', help='Output language texts')
-    rank_parser.add_argument('--profile-pictures-dir', dest='profile_pictures_dir', default='./profile_pictures',
-                              help='Directory to look for contact profile pictures. ' 
-                                   'It will be used default profile picture when the program do not find')
     rank_parser.add_argument('--contacts', dest='contacts', default='./contacts.vcf', help='Contacts export file path')
+    rank_parser.add_argument('--insighters', nargs='+', dest='insighters', choices=list(INSIGHTERS.keys()), 
+                             default=list(INSIGHTERS.keys()))
     rank_parser.add_argument('--output', dest='output', default='./rank.json', help='Rank output JSON file')
 
     args = parser.parse_args()

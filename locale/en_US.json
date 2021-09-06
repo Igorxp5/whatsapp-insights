@@ -1,6 +1,6 @@
 {
-    "TopMessagesAmountInsighter": {
-        "title": "Top messages amount",
+    "GreatestMessagesAmountInsighter": {
+        "title": "Greatest messages amount",
         "format": "{value:,} messages"
     },
     "LongestAudioInsighter": {

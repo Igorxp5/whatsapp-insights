@@ -1,7 +1,9 @@
 import io
 import os
 import zlib
+import locale
 import base64
+import contextlib
 
 from Crypto.Cipher import AES
 from difflib import SequenceMatcher
@@ -62,3 +64,13 @@ def decrypt_whatsapp_database(db_file, key_file, output):
 
 def stringy_similarity(string, string2):
     return SequenceMatcher(None, string, string2).ratio()
+
+
+@contextlib.contextmanager
+def context_locale(locale_):
+    default_locale = f'{locale.getdefaultlocale()[0]}.UTF-8'
+    locale.setlocale(locale.LC_ALL, locale_)
+    try:
+        yield
+    finally:
+        locale.setlocale(locale.LC_ALL, default_locale)

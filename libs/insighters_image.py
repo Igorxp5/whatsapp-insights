@@ -2,9 +2,9 @@ import io
 import os
 import base64
 
-from .insighters import TopMessagesAmountInsighter
-
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+from .contacts import JID_REGEXP
 
 # Paths
 ROOT_DIR = os.path.join(os.path.dirname(__file__), '..')
@@ -51,29 +51,29 @@ CARD_SHADOW_BLUR = 10
 CARD_SHADOW_COLOR = COLOR_SHADOW
 
 
-TOP_MESSAGES_BASE_Y = TITLE_VERTICAL_MARGIN * 2 + TITLE_IMAGE_SIZE
+TOP_INSIGHTER_BASE_Y = TITLE_VERTICAL_MARGIN * 2 + TITLE_IMAGE_SIZE
 
-# Top Messages Constants
-TOP_MESSAGES_CARD_WIDTH = 280
-TOP_MESSAGES_CARD_HEIGHT = 280
-TOP_MESSAGES_CARD_VERTICAL_MARGIN = 60
-TOP_MESSAGES_TITLE_FONT = ImageFont.truetype(ROBOTO_BOLD_FONT_PATH, 40)
-TOP_MESSAGES_TITLE_COLOR = COLOR_PRIMARY_GREEN
-TOP_MESSAGES_TITLE_VERTICAL_MARGIN = 30
-TOP_MESSAGES_CARD_IMAGE_SIZE = 130
-TOP_MESSAGES_CARD_IMAGE_VERTICAL_MARGIN = 20
-TOP_MESSAGES_CARD_TITLE_FONT = ImageFont.truetype(ROBOTO_FONT_PATH, 28)
-TOP_MESSAGES_CARD_TITLE_COLORS = [COLOR_SILVER, COLOR_SILVER, COLOR_SILVER]
-TOP_MESSAGES_CARD_TITLE_VERTICAL_MARGIN = 15
-TOP_MESSAGES_CARD_VALUE_FONT = ImageFont.truetype(ROBOTO_BOLD_FONT_PATH, 28)
-TOP_MESSAGES_CARD_VALUE_COLOR = COLOR_PRIMARY_GREEN
-TOP_MESSAGES_CARD_HORIZONTAL_POSITIONS = [
+# Top Insighter Constants
+TOP_INSIGHTER_CARD_WIDTH = 280
+TOP_INSIGHTER_CARD_HEIGHT = 280
+TOP_INSIGHTER_CARD_VERTICAL_MARGIN = 60
+TOP_INSIGHTER_TITLE_FONT = ImageFont.truetype(ROBOTO_BOLD_FONT_PATH, 40)
+TOP_INSIGHTER_TITLE_COLOR = COLOR_PRIMARY_GREEN
+TOP_INSIGHTER_TITLE_VERTICAL_MARGIN = 30
+TOP_INSIGHTER_CARD_IMAGE_SIZE = 130
+TOP_INSIGHTER_CARD_IMAGE_VERTICAL_MARGIN = 20
+TOP_INSIGHTER_CARD_TITLE_FONT = ImageFont.truetype(ROBOTO_FONT_PATH, 28)
+TOP_INSIGHTER_CARD_TITLE_COLORS = [COLOR_SILVER, COLOR_SILVER, COLOR_SILVER]
+TOP_INSIGHTER_CARD_TITLE_VERTICAL_MARGIN = 15
+TOP_INSIGHTER_CARD_VALUE_FONT = ImageFont.truetype(ROBOTO_BOLD_FONT_PATH, 28)
+TOP_INSIGHTER_CARD_VALUE_COLOR = COLOR_PRIMARY_GREEN
+TOP_INSIGHTER_CARD_HORIZONTAL_POSITIONS = [
 	HORIZONTAL_PADDING,  # 1nd (left)
-	(IMAGE_WIDTH - TOP_MESSAGES_CARD_WIDTH) // 2,  # 2st (center)
-	IMAGE_WIDTH - HORIZONTAL_PADDING - TOP_MESSAGES_CARD_WIDTH  # 3rd (right)
+	(IMAGE_WIDTH - TOP_INSIGHTER_CARD_WIDTH) // 2,  # 2st (center)
+	IMAGE_WIDTH - HORIZONTAL_PADDING - TOP_INSIGHTER_CARD_WIDTH  # 3rd (right)
 ]
 
-CONTENT_BASE_Y = TOP_MESSAGES_BASE_Y + TOP_MESSAGES_CARD_HEIGHT + TOP_MESSAGES_CARD_VERTICAL_MARGIN * 2
+CONTENT_BASE_Y = TOP_INSIGHTER_BASE_Y + TOP_INSIGHTER_CARD_HEIGHT + TOP_INSIGHTER_CARD_VERTICAL_MARGIN * 2
 
 # Insight Card Constants
 INSIGHT_CARD_WIDTH = 430
@@ -173,7 +173,7 @@ def draw_text(image, text, fill, position, font, letter_spacing=0):
         draw.text(offset, letter, fill=fill, font=font)
         drawed_width += font.getsize(letter)[0] + letter_spacing
 
-def center_text(image, text, font, fill, x, y, width=None, height=None):
+def center_text(image, text, font, fill, x=0, y=0, width=None, height=None):
     text_size = font.getsize(text)
     if width:
         x += (width - text_size[0]) // 2
@@ -222,27 +222,29 @@ def multiline_text_lines(text, max_length_per_line):
 
     return lines
 
-def draw_title(image, profile_image_path):
-    text_width, _ = TITLE_FONT.getsize(TITLE_TEXT)
-    title_width = TITLE_IMAGE_SIZE + TITLE_HORIZONTAL_MARGIN + text_width
-    x = (IMAGE_WIDTH - title_width) // 2
-    y = TITLE_VERTICAL_MARGIN - 15  # clearing the edge of the font (15)
-    text_x = x + TITLE_IMAGE_SIZE + TITLE_HORIZONTAL_MARGIN
+def draw_title(image, profile_image_path=None):
+    if profile_image_path:
+        text_width, _ = TITLE_FONT.getsize(TITLE_TEXT)
+        title_width = TITLE_IMAGE_SIZE + TITLE_HORIZONTAL_MARGIN + text_width
+        x = (IMAGE_WIDTH - title_width) // 2
+        y = TITLE_VERTICAL_MARGIN - 15  # clearing the edge of the font (15)
+        text_x = x + TITLE_IMAGE_SIZE + TITLE_HORIZONTAL_MARGIN
 
-    draw_text(image, TITLE_TEXT.upper(), TITLE_COLOR, (text_x, TITLE_VERTICAL_MARGIN), TITLE_FONT)
-    draw_profile_image(image, profile_image_path, x, y, (TITLE_IMAGE_SIZE, TITLE_IMAGE_SIZE))
+        draw_text(image, TITLE_TEXT.upper(), TITLE_COLOR, (text_x, TITLE_VERTICAL_MARGIN), TITLE_FONT)
+        draw_profile_image(image, profile_image_path, x, y, (TITLE_IMAGE_SIZE, TITLE_IMAGE_SIZE))
+    else:
+        center_text(image, TITLE_TEXT, TITLE_FONT, TITLE_COLOR, y=TITLE_VERTICAL_MARGIN, width=image.size[0])
 
-def draw_insights(image, insighters, contacts):
-    common_insighters = 0
-    for insighter in insighters:
-        if isinstance(insighter, TopMessagesAmountInsighter):
-            draw_top_messages_cards(image, insighter, contacts)
-        else:
-            _, profile_image = contacts.get(insighter.winner.jid, (None, None))
-            x = INSIGHT_CARD_LEFT_COLUMN_X if common_insighters % 2 else  INSIGHT_CARD_RIGHT_COLUMN_X
-            y = CONTENT_BASE_Y + common_insighters // 2 * (INSIGHT_CARD_HEIGHT + INSIGHT_CARD_VERTICAL_MARGIN)
-            draw_insigher_card(image, profile_image or DEFAULT_PROFILE_IMAGE, insighter.title, insighter.winner.value, x, y)
-            common_insighters += 1
+def draw_insights(image, insighters, contacts, top_insighter=None):
+    if top_insighter:
+        draw_top_insigther_cards(image, top_insighter, contacts)
+
+    for i, insighter in enumerate(insighters):
+        _, profile_image = contacts.get(insighter.winner.jid, (None, None))
+        x = INSIGHT_CARD_LEFT_COLUMN_X if i % 2 == 0 else INSIGHT_CARD_RIGHT_COLUMN_X
+        y = CONTENT_BASE_Y + i // 2 * (INSIGHT_CARD_HEIGHT + INSIGHT_CARD_VERTICAL_MARGIN)
+        draw_insigher_card(image, profile_image or DEFAULT_PROFILE_IMAGE, insighter.title, 
+                           insighter.winner.formatted_value, x, y)
 
 def draw_insigher_card(image, profile_image, title, value, x, y):
     draw_card(image, x, y, INSIGHT_CARD_WIDTH, INSIGHT_CARD_HEIGHT)
@@ -271,39 +273,41 @@ def draw_insigher_card(image, profile_image, title, value, x, y):
     profile_image = profile_image.resize((INSIGHT_CARD_IMAGE_SIZE, INSIGHT_CARD_IMAGE_SIZE), Image.ANTIALIAS)
     image.paste(profile_image, (profile_image_x, content_base_y), profile_image.convert('RGBA'))
 
-def draw_top_messages_cards(image, top_messages_insighter, contacts):
-    title = top_messages_insighter.title.upper()
-    draw_text(image, title, TOP_MESSAGES_TITLE_COLOR, 
-              (HORIZONTAL_PADDING, TOP_MESSAGES_BASE_Y), TOP_MESSAGES_TITLE_FONT)
+def draw_top_insigther_cards(image, insighter, contacts):
+    title = insighter.title.upper()
+    draw_text(image, title, TOP_INSIGHTER_TITLE_COLOR, 
+              (HORIZONTAL_PADDING, TOP_INSIGHTER_BASE_Y), TOP_INSIGHTER_TITLE_FONT)
     
-    title_height = TOP_MESSAGES_TITLE_FONT.getsize(title)[1]
-    cards_base_y = (TOP_MESSAGES_BASE_Y + title_height + TOP_MESSAGES_TITLE_VERTICAL_MARGIN)
+    title_height = TOP_INSIGHTER_TITLE_FONT.getsize(title)[1]
+    cards_base_y = (TOP_INSIGHTER_BASE_Y + title_height + TOP_INSIGHTER_TITLE_VERTICAL_MARGIN)
 
-    for i, winner in enumerate(top_messages_insighter.winner):
-        display_name, profile_image = contacts[winner.jid]
-        person_name = display_name.split(' ', 1)[0]
+    rank = insighter.get_rank()[:3]
+    for i, rank_item in enumerate(rank):
+        display_name, profile_image = contacts[rank_item.jid]
+        person_name = display_name.split(' ', 1)[0] if display_name else JID_REGEXP.search(rank_item.jid).group(1)
         title = f'{i + 1}º {person_name}'
-        title_color = TOP_MESSAGES_CARD_TITLE_COLORS[i]
-        x = TOP_MESSAGES_CARD_HORIZONTAL_POSITIONS[i]
-        draw_top_messages_card(image, profile_image or DEFAULT_PROFILE_IMAGE, title, title_color, winner.value, x, cards_base_y)
+        title_color = TOP_INSIGHTER_CARD_TITLE_COLORS[i]
+        x = TOP_INSIGHTER_CARD_HORIZONTAL_POSITIONS[i]
+        draw_top_insigther_card(image, profile_image or DEFAULT_PROFILE_IMAGE, title, title_color, 
+                                rank_item.formatted_value, x, cards_base_y)
 
 
-def draw_top_messages_card(image, profile_image, title, title_color, value, x, y):
-    draw_card(image, x, y, TOP_MESSAGES_CARD_WIDTH, TOP_MESSAGES_CARD_HEIGHT)
+def draw_top_insigther_card(image, profile_image, title, title_color, value, x, y):
+    draw_card(image, x, y, TOP_INSIGHTER_CARD_WIDTH, TOP_INSIGHTER_CARD_HEIGHT)
 
-    content_height = TOP_MESSAGES_CARD_IMAGE_SIZE + TOP_MESSAGES_CARD_IMAGE_VERTICAL_MARGIN \
-        + TOP_MESSAGES_CARD_VALUE_FONT.getsize(value)[1] + TOP_MESSAGES_CARD_TITLE_VERTICAL_MARGIN \
-        + TOP_MESSAGES_CARD_TITLE_FONT.getsize(title)[1]
+    content_height = TOP_INSIGHTER_CARD_IMAGE_SIZE + TOP_INSIGHTER_CARD_IMAGE_VERTICAL_MARGIN \
+        + TOP_INSIGHTER_CARD_VALUE_FONT.getsize(value)[1] + TOP_INSIGHTER_CARD_TITLE_VERTICAL_MARGIN \
+        + TOP_INSIGHTER_CARD_TITLE_FONT.getsize(title)[1]
     
-    content_base_y = y + ((TOP_MESSAGES_CARD_HEIGHT - content_height) // 2)
-    profile_image_x = x + ((TOP_MESSAGES_CARD_WIDTH - TOP_MESSAGES_CARD_IMAGE_SIZE) // 2)
-    value_y = content_base_y + TOP_MESSAGES_CARD_IMAGE_SIZE + TOP_MESSAGES_CARD_IMAGE_VERTICAL_MARGIN
-    title_y = value_y + TOP_MESSAGES_CARD_VALUE_FONT.getsize(value)[1] + TOP_MESSAGES_CARD_TITLE_VERTICAL_MARGIN
+    content_base_y = y + ((TOP_INSIGHTER_CARD_HEIGHT - content_height) // 2)
+    profile_image_x = x + ((TOP_INSIGHTER_CARD_WIDTH - TOP_INSIGHTER_CARD_IMAGE_SIZE) // 2)
+    value_y = content_base_y + TOP_INSIGHTER_CARD_IMAGE_SIZE + TOP_INSIGHTER_CARD_IMAGE_VERTICAL_MARGIN
+    title_y = value_y + TOP_INSIGHTER_CARD_VALUE_FONT.getsize(value)[1] + TOP_INSIGHTER_CARD_TITLE_VERTICAL_MARGIN
     
-    center_text(image, value, TOP_MESSAGES_CARD_VALUE_FONT, TOP_MESSAGES_CARD_VALUE_COLOR, 
-                x, value_y, width=TOP_MESSAGES_CARD_WIDTH)
-    center_text(image, title, TOP_MESSAGES_CARD_TITLE_FONT, title_color, 
-                x, title_y, width=TOP_MESSAGES_CARD_WIDTH)
+    center_text(image, value, TOP_INSIGHTER_CARD_VALUE_FONT, TOP_INSIGHTER_CARD_VALUE_COLOR, 
+                x, value_y, width=TOP_INSIGHTER_CARD_WIDTH)
+    center_text(image, title, TOP_INSIGHTER_CARD_TITLE_FONT, title_color, 
+                x, title_y, width=TOP_INSIGHTER_CARD_WIDTH)
     
     profile_image = mask_image_by_circle(profile_image)
     profile_image = profile_image.resize((INSIGHT_CARD_IMAGE_SIZE, INSIGHT_CARD_IMAGE_SIZE), Image.ANTIALIAS)
@@ -327,12 +331,12 @@ def draw_footer(image):
               text=FOOTER_LINK_TEXT, font=FOOTER_FONT, fill=FOOTER_TEXT_COLOR, 
               anchor='lm')
 
-def create_insights_image(insighters, profile_image_path, contacts, output_path='insights.png'):
+def create_insights_image(insighters, contacts, profile_image_path=None, top_insighter=None, output_path='insights.png'):
     image = Image.new('RGBA', IMAGE_SIZE, color=IMAGE_BACKGROUND)
 
     draw_title(image, profile_image_path)
     
-    draw_insights(image, insighters, contacts)
+    draw_insights(image, insighters, contacts, top_insighter)
 
     if FOOTER_ENABLED:
         draw_footer(image)
