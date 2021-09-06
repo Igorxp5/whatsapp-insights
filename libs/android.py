@@ -1,9 +1,9 @@
-import logging
 import re
 import os
 import io
 import time
 import shlex
+import logging
 import tempfile
 import subprocess
 

@@ -1,4 +1,3 @@
-from libs import contacts
 import re
 import time
 import getpass

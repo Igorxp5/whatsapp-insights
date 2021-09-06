@@ -85,10 +85,16 @@ class ContactManager:
         return contact_manager
 
     @staticmethod
-    def from_msgtore_db(db_path):
+    def from_msgtore_db(db_path, from_me=True):
         with sqlite3.connect(db_path) as conn:
             contact_manager = ContactManager()
-            for row in conn.execute('SELECT key_remote_jid FROM messages GROUP BY key_remote_jid'):
+
+            if from_me:
+                sql = 'SELECT key_remote_jid FROM messages WHERE key_from_me = 1 GROUP BY key_remote_jid'
+            else:
+                sql = 'SELECT key_remote_jid FROM messages GROUP BY key_remote_jid'
+
+            for row in conn.execute(sql):
                 jid = row[0]
                 display_name = None
                 if JID_REGEXP.match(jid):

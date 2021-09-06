@@ -6,6 +6,7 @@ import base64
 import logging
 import argparse
 import tempfile
+import requests
 import subprocess
 
 from PIL import Image
@@ -22,6 +23,7 @@ from libs.insighters import InsighterManager, LongestAudioInsighter, \
     GreatestPhotoAmountInsighter, LongestCallInsighter, \
     GreatestCallAmountInsighter, LongestTimeInCallsInsighter
 
+from libs.whatsapp_web import WhatsAppWeb
 from libs.chart_race import create_chart_race_video
 from libs.insighters_image import create_insights_image
 
@@ -42,6 +44,8 @@ INSIGHTERS = {
 
 DEFAULT_PROFILE_IMAGE = os.path.join(os.path.dirname(__file__), 'images', 'profile-image.png')
 LOCALE_DIR = os.path.join(os.path.dirname(__file__), 'locale')
+
+CHROMEDRIVER_BIN = 'chromedriver.exe' if os.name == 'nt' else 'chromedriver'
 
 
 def get_adb_serials(include_emulators=True):
@@ -279,6 +283,44 @@ def generate_video(msg_store, locale, profile_pictures_dir, contacts, output, gr
     create_chart_race_video(contact_manager, message_manager, output, locale, group_contact_by_name=group_contact_by_name)
 
 
+def extract_profile_images(msg_store, output, chromedriver):
+    if not msg_store or not os.path.exists(msg_store):
+        logging.error(f'Messages database not found in path "{msg_store}"')
+        return
+    
+    if not output:
+        logging.error('No output directory provided')
+        return
+    
+    if output and os.path.exists(output) and not os.path.isdir(output):
+        logging.error('The output path already exists and it\'s not directory')
+        return
+    
+    if not chromedriver:
+        logging.error('No chromedriver provided')
+        return
+    
+    logging.info('Loading contacts...')
+    contact_manager = ContactManager.from_msgtore_db(msg_store, from_me=True)
+
+    os.makedirs(output, exist_ok=True)
+
+    logging.info('Logging into WhatsApp Web...')
+    whatsapp_web = WhatsAppWeb(chromedriver)
+
+    for contact in contact_manager.get_users():
+        phone_number = JID_REGEXP.search(contact.jid).group(1)
+        logging.info(f'Getting profile image for "{phone_number}"...')
+        image_url = whatsapp_web.get_contact_profile_image_url(contact.jid)
+        if image_url:
+            with open(os.path.join(output, f'{contact.jid}.jpg'), 'wb') as file:
+                response = requests.get(image_url)
+                file.write(response.content)
+            logging.info(f'Profile image for "{phone_number}" has been saved!')
+        else:
+            logging.info(f'"{phone_number}" does not have profile image!')
+
+
 if __name__ == '__main__':
     default_device_serial = next(iter(get_adb_serials(include_emulators=False)), None)
 
@@ -317,7 +359,14 @@ if __name__ == '__main__':
     contacts_parser.add_argument('--profile-pictures-dir', dest='profile_pictures_dir', default='./profile_pictures',
                                  help='Directory for pull the contact profile pictures. If the directory does not exist, it will be created')
     contacts_parser.add_argument('--output', dest='output', default='./contacts.vcf', help='VCF contacts output file path')
-    
+
+    profile_images_parser = subparsers.add_parser('extract-profile-images', help='Extract contacts profile images',
+                                             formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    profile_images_parser.add_argument('--msg-store', dest='msg_store', default='msgstore.db', help='WhatsApp database file path')
+    profile_images_parser.add_argument('--output', dest='output', default='./profile_pictures', 
+                                       help='Directory where to save the contacts profile images')
+    profile_images_parser.add_argument('--chromedriver', dest='chromedriver', default=f'./{CHROMEDRIVER_BIN}', help='Chrome Driver path')
+
     image_parser = subparsers.add_parser('generate-image', help='Generate Insights image',
                                          formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     image_parser.add_argument('--msg-store', dest='msg_store', default='msgstore.db', help='WhatsApp database file path')

@@ -1,7 +1,5 @@
 import os
 import re
-import tqdm
-import time
 import logging
 import subprocess
 import collections
