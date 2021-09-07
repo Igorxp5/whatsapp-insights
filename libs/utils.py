@@ -1,12 +1,20 @@
 import io
 import os
+import re
 import zlib
 import locale
 import base64
+import subprocess
 import contextlib
 
 from Crypto.Cipher import AES
 from difflib import SequenceMatcher
+
+
+def get_adb_serials(include_emulators=True):
+    out = subprocess.check_output(['adb', 'devices'], shell=True, text=True).strip('\r\n').strip('\n')
+    devices = [d for d in re.findall(r'(\S+)\tdevice', out) if include_emulators or not d.startswith('emulator-')]
+    return devices
 
 
 def time_delta_to_str(time, units, round_=False):

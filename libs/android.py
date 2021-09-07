@@ -15,6 +15,10 @@ class WaitforTimeout(RuntimeError):
     pass
 
 
+class CouldNotDumpScreen(RuntimeError):
+    pass
+
+
 class NotReachedToActivityError(RuntimeError):
     def __init__(self, activity):
         super().__init__('device did not reach to activity: {}'.format(activity))
@@ -39,8 +43,11 @@ class Android:
         return out.rstrip('\n') if text else out
 
     def root(self):
-        subprocess.Popen(['adb', '-s', self.serial, 'wait-for-device', 'root'], shell=True).wait(timeout=15)
-    
+        try:
+            self.adb(['root'], timeout=15)
+        except subprocess.TimeoutExpired:
+            logging.warning('Rooting the device process may have failed')
+
     def pull(self, src, dst, timeout=600):
         process = subprocess.Popen(['adb', '-s', self.serial, 'wait-for-device', 'pull', src, dst], shell=True, text=True,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -69,25 +76,31 @@ class Android:
     
     def waitfor_window(self, window_name, pattern, timeout=10):
         start_time = time.time()
+        package = window_name.split('/', 1)[0]
         
         if not isinstance(pattern, re.Pattern):
             pattern = re.compile(pattern)
         
-        windows = self._get_windows()
-        
         while time.time() - start_time < timeout:
+            windows = self._get_windows()
             for window_info, window_data in windows:
-                if window_info[2] == window_name and pattern.search(window_data):
-                    return
-        return NotReachedToWindowError(window_name, pattern)
-    
+                if window_info[2].startswith(package):
+                    if window_info[2] == window_name and pattern.search(window_data):
+                        return
+                    raise NotReachedToWindowError(window_name, pattern)
+        raise NotReachedToWindowError(window_name, pattern)
+
     def shell(self, cmd, **kwargs):
         if not isinstance(cmd, list):
             cmd = shlex.split(cmd)
         return self.adb(['shell'] + cmd, **kwargs)
     
     def wait_boot(self, timeout=300):
-        self.shell(['getprop', 'sys.boot_completed'], timeout=timeout)
+        start_time = time.time()
+        boot_completed = False
+        while not boot_completed and time.time() - start_time < timeout:
+            boot_completed = self.shell(['getprop', 'sys.boot_completed'], timeout=timeout) == '1'
+        time.sleep(5)
 
     def text(self, text, step=10):
         for start in range(0, len(text), step):
@@ -147,6 +160,9 @@ class Android:
     def uninstall_app(self, package):
         self.shell(['pm', 'uninstall', package])
 
+    def is_app_installed(self, package):
+        return bool(self.shell(['pm', 'list', 'packages', package]))
+
     def force_stop(self, package):
         self.shell(['am', 'force-stop', package])
     
@@ -192,11 +208,15 @@ class UIAutomator:
         nodes = []
         if self.tree is not None and not force_dump:
             nodes = self._find_nodes(**kwargs)
-        if not nodes:
-            self.dump()
-            nodes = self._find_nodes(**kwargs)
-        return [UIElement(self, node) for node in nodes]
-    
+        try:
+            if not nodes:
+                self.dump()
+                nodes = self._find_nodes(**kwargs)
+            return [UIElement(self, node) for node in nodes]
+        except CouldNotDumpScreen:
+            logging.warning('Could not dump screen')
+            return []
+
     def find_element(self, force_dump=True, **kwargs):
         elements = self.find_elements(force_dump=force_dump, **kwargs)
         return elements[0] if elements else None
@@ -211,11 +231,15 @@ class UIAutomator:
 
     def dump(self):
         self.android.shell(['uiautomator', 'dump'], stderr=subprocess.PIPE)
-        self.android.adb(['pull', '/sdcard/window_dump.xml', self._dump_file])
-
-        with open(self._dump_file, 'rb') as file:
-            content = file.read()
-            self.tree = etree.XML(content)
+        try:
+            self.android.adb(['pull', '/sdcard/window_dump.xml', self._dump_file])
+        except subprocess.CalledProcessError:
+            logging.warning('Could not dump the screen')
+            raise CouldNotDumpScreen
+        else:
+            with open(self._dump_file, 'rb') as file:
+                content = file.read()
+                self.tree = etree.XML(content)
     
     def _find_nodes(self, **kwargs):
         if 'id' in kwargs:

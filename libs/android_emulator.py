@@ -22,7 +22,7 @@ class EmulatorNotStartedError(RuntimeError):
 class AndroidEmulator:
     JAVA_BIN_DIR = os.path.join(os.environ.get('JAVA_HOME'), 'bin') if os.environ.get('JAVA_HOME') else None 
     ANDROID_HOME = os.environ.get('ANDROID_HOME')
-    AVD_MANAGER = None
+    AVD_MANAGER = os.environ.get('AVD_MANAGER')
     EMULATOR = None
     DEFAULT_ARGS = ['-no-boot-anim', '-netfast', '-delay-adb', '-writable-system']
 

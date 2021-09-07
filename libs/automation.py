@@ -6,6 +6,8 @@ import subprocess
 
 from .android import WaitforTimeout, NotReachedToWindowError, NotReachedToActivityError
 
+WHTASAPP_PACKAGE = 'com.whatsapp'
+
 
 class UserDoesNotExist(RuntimeError):
     def __init__(self, *args):
@@ -24,24 +26,35 @@ class SigntureMathError(RuntimeError):
 
 def open_whatsapp(android):
     android.start_activity('com.whatsapp/.Main', ['-a', 'android.intent.action.MAIN'])
-    # handle_two_factor_verification(android)
+    handle_two_factor_verification(android)
 
 def uninstall_whatsapp(android):
-    android.uninstall_app('com.whatsapp')
+    android.uninstall_app(WHTASAPP_PACKAGE)
 
 def clear_whatsapp_data(android):
-    android.clear_app('com.whatsapp')
+    android.clear_app(WHTASAPP_PACKAGE)
 
 def force_stop_whatsapp(android):
-    android.force_stop('com.whatsapp')
+    android.force_stop(WHTASAPP_PACKAGE)
 
 def handle_two_factor_verification(android, timeout=5):
-    # FIXME
+    two_factor_is_in_screen = False
     try:
-        android.waitfor_window('com.whatsapp/com.whatsapp.HomeActivity', r'gr=CENTER', timeout=5)
+        android.waitfor_window('com.whatsapp/com.whatsapp.registration.VerifyTwoFactorAuth', r'.*', timeout=timeout)
     except NotReachedToWindowError:
         pass
     else:
+        two_factor_is_in_screen = True
+    
+    if not two_factor_is_in_screen:
+        try:
+            android.waitfor_window('com.whatsapp/com.whatsapp.HomeActivity', r'gr=CENTER', timeout=timeout)
+        except NotReachedToWindowError:
+            pass
+        else:
+            two_factor_is_in_screen = True
+
+    if two_factor_is_in_screen:
         logging.warning('Whatsapp is requesting Two-step Verification!')
         code = getpass.getpass('Type your two-step verification code: ')
         if not android.is_keyboard_up():
@@ -55,7 +68,7 @@ def extract_whatsapp_key(android, output_path):
     open_whatsapp(android)
     
     try:
-        android.ui.waitfor_element(text=re.compile(r'You have a custom ROM installed.'))
+        android.ui.waitfor_element(text=re.compile(r'You have a custom ROM installed.'), timeout=20)
     except WaitforTimeout:
         pass
     else:
@@ -120,7 +133,9 @@ def extract_whatsapp_key(android, output_path):
     logging.info('Typing 6-digit code...')
     android.text(code, step=3)
 
-    handle_two_factor_verification(timeout=10)
+    time.sleep(10)
+    
+    handle_two_factor_verification(android, timeout=10)
     
     try:
         android.ui.waitfor_element(text='CONTINUE').tap()
@@ -132,19 +147,32 @@ def extract_whatsapp_key(android, output_path):
         time.sleep(3)
         android.ui.waitfor_element(text='Allow').tap()
 
-    logging.info('Tapping to restore backup...')
-    android.ui.waitfor_element(text='RESTORE').tap()
+    try:
+        android.ui.waitfor_element(text=re.compile('If you previously backed up to Google Drive'), timeout=7)
+    except WaitforTimeout:
+        pass
+    else:
+        logging.info('Skipping Google Drive backup restoring...')
+        android.ui.waitfor_element(text='SKIP').tap()
 
-    time.sleep(10)
+    try:
+        android.ui.waitfor_element(text='Profile info', timeout=15)
+    except WaitforTimeout:
+        logging.error('Not reached to Profile Info screen')
+    else:
+        force_stop_whatsapp(android)
+        android.shell(['date', '060910002016.00'])
+        android.shell(['am', 'broadcast', '-a', 'android.intent.action.TIME_SET'])
+        open_whatsapp(android)
+        time.sleep(100)
+        force_stop_whatsapp(android)
+        logging.info('Extracting database key...')
+        android.pull('/data/data/com.whatsapp/files/key', output_path)
 
-    force_stop_whatsapp(android)
-
-    logging.info('Extracting database key...')
-    android.pull('/data/data/com.whatsapp/files/key', output_path)
 
 def open_whatsapp_chat(android, phone_number):
     android.shell(['am', 'start', '-d', f'smsto:{phone_number}', '-a', 'android.intent.action.SENDTO', 
-                   '--activity-clear-top', '--activity-single-top', 'com.whatsapp'])
+                   '--activity-clear-top', '--activity-single-top', WHTASAPP_PACKAGE])
     try:
         android.waitfor_activity('com.whatsapp/.Conversation', timeout=5)
     except NotReachedToActivityError:
@@ -179,18 +207,20 @@ def get_user_profile_picture(android):
     crop_bounds = android.ui.waitfor_element(id='picture_animation').bounds()
     return android.screenshot(crop_bounds)
 
-def install_whatsapp(android, apk_file, sdk_manager=None, apk_signature=None):
+def install_apk(android, apk_file, sdk_manager=None, apk_signature=None):
     if apk_signature:
         if not sdk_manager:
             raise RuntimeError('SDKManager object needed to verify apk signture')
-        logging.info('Checking WhatsApp APK signature...')
+        logging.info('Checking APK signature...')
         if sdk_manager.get_apk_sha256_signature(apk_file) != apk_signature:
-            logging.error('WhatsApp APK does not have same signature of Official APK')
-            raise SigntureMathError('WhatsApp APK does not have same signature of Official APK')
+            logging.error('APK does not have same signature of the provided signature')
+            raise SigntureMathError('APK does not have same signature of the provided signature')
 
-    logging.info('Installing WhatsApp APK...')
-    android.adb(['install', '-r', '-d', '-g', apk_file])
-
+    logging.info('Installing APK...')
+    try:
+        android.adb(['install', '-r', '-d', '-g', apk_file], timeout=60)
+    except subprocess.TimeoutExpired:
+        logging.warning('The installation may not be completed successfully')
 
 def open_whatsapp_contact_info(android, phone_number):
     open_whatsapp_chat(phone_number)
@@ -218,6 +248,10 @@ def backup_whatsapp_messages(android, timeout=600):
 
 def set_wifi_state(android, enable):
     android.shell(['svc', 'wifi', 'enable' if enable else 'disable'])
+
+
+def set_mobile_data_state(android, enable):
+    android.shell(['svc', 'data', 'enable' if enable else 'disable'])
 
 
 def get_main_screen_contacts_info(android, include_groups=True, include_archive=True):

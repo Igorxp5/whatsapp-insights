@@ -67,6 +67,12 @@ class SDKManager:
         if process.poll() != 0:
             raise InstallPackageError
     
+    def is_package_installed(self, name):
+        for package in self.get_all_packages()[0]:
+            if package.name == name:
+                return True
+        return False
+    
     def get_installed_build_tools(self):
         installed_packages, _ = self.get_all_packages()
         return [p for p in installed_packages if p.name.startswith('build-tools')]

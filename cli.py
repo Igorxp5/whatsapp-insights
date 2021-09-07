@@ -1,5 +1,4 @@
 import io
-import re
 import os
 import json
 import base64
@@ -7,14 +6,15 @@ import logging
 import argparse
 import tempfile
 import requests
-import subprocess
 
 from PIL import Image
 
 from libs import automation, utils
 from libs.android import Android
 from libs.calls import CallManager
+from libs.sdk_manager import SDKManager
 from libs.messages import MessageManager
+from libs.android_emulator import AndroidEmulator
 from libs.contacts import JID_REGEXP, ContactManager
 from libs.insighters import InsighterManager, LongestAudioInsighter, \
     GreatestAudioAmountInsighter, GreatestAmountOfDaysTalkingInsighter, \
@@ -47,11 +47,87 @@ LOCALE_DIR = os.path.join(os.path.dirname(__file__), 'locale')
 RANK_DATE_FORMAT = '%d %b %Y %H:%M:%S'
 CHROMEDRIVER_BIN = 'chromedriver.exe' if os.name == 'nt' else 'chromedriver'
 
+# WhatsApp Messenger 2.21.16.20 (x86_64) (Android 4.1+)
+WHATSAPP_APK_URL = 'https://www.apkmirror.com/wp-content/themes/APKMirror/download.php?id=2554798'
+WHATSAPP_FINGERPRINT_SHA256 = '3987d043d10aefaf5a8710b3671418fe57e0e19b653c9df82558feb5ffce5d44'
 
-def get_adb_serials(include_emulators=True):
-    out = subprocess.check_output(['adb', 'devices'], shell=True, text=True).strip('\r\n').strip('\n')
-    devices = [d for d in re.findall(r'(\S+)\tdevice', out) if include_emulators or not d.startswith('emulator-')]
-    return devices
+AVD_NAME = 'whatsapp-insights'
+BUILD_TOOLS_PACKAGE = 'system-images;android-29;google_apis;x86_64'
+
+
+def extract_key(serial, verify_apk, backup, show_emulator, whatsapp_apk_file, output):
+    if backup and not serial:
+        logging.error('To backup WhatsApp messages provide device serial')
+        return
+
+    if backup and serial not in utils.get_adb_serials():
+        logging.error(f'Device "{serial}" not found')
+        return
+
+    if backup:
+        android = Android(serial)
+        logging.warning('Before starting make sure your device is unlocked!')
+        input('Press Enter to continue...')
+        logging.info('Opening WhatsApp to backup the messages...')
+        logging.info(f'Turning off Wi-fi...')
+        automation.set_wifi_state(android, False)
+        logging.info(f'Backuping WhatsApp messages...')
+        automation.backup_whatsapp_messages(android)
+        logging.info(f'Backup finished!')
+    
+    sdk_manager = SDKManager(android_home=ANDROID_HOME, sdk_manager=SDK_MANAGER)
+    if not sdk_manager.is_package_installed(BUILD_TOOLS_PACKAGE):
+        sdk_manager.install_package(BUILD_TOOLS_PACKAGE)
+
+    if AVD_NAME not in AndroidEmulator.available_avd():
+        AndroidEmulator.create_avd(AVD_NAME, 'Nexus 5', BUILD_TOOLS_PACKAGE)
+    
+    emulator = AndroidEmulator(AVD_NAME, show_window=show_emulator)
+    logging.info('Waiting emulator to start...')
+    emulator.wait_boot()
+    logging.info('Device emulator is ready!')
+
+    emulator = emulator.adb
+    
+    logging.info('Putting emulator in root state')
+    emulator.root()
+
+    logging.info('Checking if WhatsApp is installed...')
+    if not emulator.is_app_installed(automation.WHTASAPP_PACKAGE):
+        if not whatsapp_apk_file:
+            whatsapp_apk = os.path.join('whatsapp.apk')
+            try:
+                logging.info('Downloading WhatsApp APK...')
+                response = requests.get(WHATSAPP_APK_URL, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36 Edg/92.0.902.84'})
+
+                assert response.status_code == 200
+                
+                with open(whatsapp_apk, 'wb') as file:
+                    file.write(response.content)
+                
+            except Exception as error:
+                raise RuntimeError('failed to download WhatsApp APK', error)
+
+            logging.info('WhatsApp APK downloaded!')
+
+            if not verify_apk:
+                logging.warning('WhatsApp APK signature will not be checked!')
+
+            automation.install_apk(emulator, whatsapp_apk, verify_apk and sdk_manager, 
+                                    verify_apk and WHATSAPP_FINGERPRINT_SHA256)
+        else:
+            automation.install_apk(emulator, whatsapp_apk_file)
+        
+        if not emulator.is_app_installed(automation.WHTASAPP_PACKAGE):
+            logging.error('Failed to install WhatsApp')
+            return
+
+    automation.extract_whatsapp_key(emulator, output)
+
+    if backup:
+        logging.info(f'Turning on Wi-fi...')
+        automation.force_stop_whatsapp(android)
+        automation.set_wifi_state(android, True)
 
 
 def extract_database(backup, serial, key, output):
@@ -59,7 +135,7 @@ def extract_database(backup, serial, key, output):
         logging.error('No device serial provided')
         return
     
-    if serial not in get_adb_serials():
+    if serial not in utils.get_adb_serials():
         logging.error(f'Device "{serial}" not found')
         return
     
@@ -101,7 +177,7 @@ def extract_database(backup, serial, key, output):
                 logging.error('WhatsApp database backup not found in "/sdcard/WhatsApp/Databases/"')
                 return
         logging.info(f'Decrypting database backup...')
-        utils.decrypy_whatsapp_database(enc_db_path, key, output)    
+        utils.decrypt_whatsapp_database(enc_db_path, key, output)    
         logging.info(f'Database extracted!')
 
 
@@ -377,7 +453,7 @@ def generate_rank_file(msg_store, locale, contacts, insighters, output):
 
 
 if __name__ == '__main__':
-    default_device_serial = next(iter(get_adb_serials(include_emulators=False)), None)
+    default_device_serial = next(iter(utils.get_adb_serials(include_emulators=False)), None)
 
     parser = argparse.ArgumentParser(description='Collect insights from WhatsApp',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -386,14 +462,15 @@ if __name__ == '__main__':
 
     key_parser = subparsers.add_parser('extract-key', help='Extract WhatsApp database key',
                                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    key_parser.add_argument('--no-verify-apk', action='store_true', default=False, dest='verify_apk', 
+    key_parser.add_argument('--no-verify-apk', action='store_false', default=True, dest='verify_apk', 
                             help='Verify WhatsApp APK signature before install in the emulator')
     key_parser.add_argument('--no-backup', action='store_false', default=True, dest='backup', 
                             help='Do not backup WhatsApp messages before extracting the key (Not recommended).')
     key_parser.add_argument('--show-emulator', action='store_true', default=False, dest='show_emulator',
                             help='Show emulator window while the key extraction is happening')
-    key_parser.add_argument('--serial', dest='serial', help='Serial device for backup WhatsApp messages')
-    key_parser.add_argument('--whatsapp-apk-file', dest='whatsapp_apk_file', 
+    key_parser.add_argument('--serial', dest='serial', default=default_device_serial,
+                            help='Serial device for backup WhatsApp messages')
+    key_parser.add_argument('--whatsapp-apk-file', dest='whatsapp_apk_file',
                             help='WhatsApp APK to install in the emulator. By default the APK is installed from APKMirror')
     key_parser.add_argument('--output', dest='output', default='./key', help='Key output file path')
     
