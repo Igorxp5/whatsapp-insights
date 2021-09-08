@@ -4,6 +4,8 @@ import sqlite3
 from enum import Enum
 from datetime import datetime
 
+from .contacts import JID_REGEXP
+
 
 class MessageManager:
     def __init__(self):
@@ -26,20 +28,21 @@ class MessageManager:
             message_manager = MessageManager()
             for row in conn.execute('SELECT * FROM messages'):
                 remote_jid = row[1]
-                from_me = bool(row[2])
-                status = row[4]
-                data = row[6]
-                timestamp = row[7]
-                mime_type = row[9]
-                media_name = row[12]
-                media_duration = row[15]
-                forwarded = row[37]
-                message = Message(remote_jid, from_me, status, data, timestamp / 1000, 
-                                  forwarded, mime_type, media_duration, media_name, tz=tz)
-                if remote_jid not in message_manager._messages:
-                    message_manager._contacts.add(remote_jid)
-                    message_manager._messages[remote_jid] = []
-                message_manager._messages[remote_jid].append(message)
+                if JID_REGEXP.search(remote_jid):
+                    from_me = bool(row[2])
+                    status = row[4]
+                    data = row[6]
+                    timestamp = row[7]
+                    mime_type = row[9]
+                    media_name = row[12]
+                    media_duration = row[15]
+                    forwarded = row[37]
+                    message = Message(remote_jid, from_me, status, data, timestamp / 1000, 
+                                    forwarded, mime_type, media_duration, media_name, tz=tz)
+                    if remote_jid not in message_manager._messages:
+                        message_manager._contacts.add(remote_jid)
+                        message_manager._messages[remote_jid] = []
+                    message_manager._messages[remote_jid].append(message)
         return message_manager
 
 
