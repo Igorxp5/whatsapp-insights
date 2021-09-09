@@ -19,8 +19,8 @@ from libs.contacts import JID_REGEXP, ContactManager
 from libs.insighters import InsighterManager, LongestAudioInsighter, \
     GreatestAudioAmountInsighter, GreatestAmountOfDaysTalkingInsighter, \
     LongestConversationInsighter, GreatestMessagesAmountInsighter, \
-    GreatestPhotoAmountInsighter, LongestCallInsighter, \
-    GreatestCallAmountInsighter, LongestTimeInCallsInsighter
+    GreatestMyStatusAnsweredInsighter, GreatestPhotoAmountInsighter, \
+    LongestCallInsighter, GreatestCallAmountInsighter, LongestTimeInCallsInsighter
 
 from libs.whatsapp_web import WhatsAppWeb
 from libs.chart_race import create_chart_race_video
@@ -36,6 +36,7 @@ INSIGHTERS = {
     'GreatestPhotoAmountInsighter': GreatestPhotoAmountInsighter,
     'GreatestMessagesAmountInsighter': GreatestMessagesAmountInsighter,
     'LongestConversationInsighter': LongestConversationInsighter,
+    'GreatestMyStatusAnsweredInsighter': GreatestMyStatusAnsweredInsighter,
     'LongestCallInsighter': LongestCallInsighter,
     'GreatestCallAmountInsighter': GreatestCallAmountInsighter,
     'LongestTimeInCallsInsighter': LongestTimeInCallsInsighter,

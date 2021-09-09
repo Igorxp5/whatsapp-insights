@@ -1,4 +1,5 @@
 from datetime import datetime
+from datetime import timedelta
 
 from .calls import Call
 from .messages import Message
@@ -34,12 +35,13 @@ class InsighterManager:
             return
 
         for insighter in self._filter_insighters(MessageInsighter):
-            if self._group_by_name:
-                contact = self.contact_manager.get(message.remote_jid)
-                if contact and contact.display_name is not None:
-                    common_contacts = self.contact_manager.get_contacts_by_display_name(contact.display_name)
-                    message.remote_jid = common_contacts[-1].jid if common_contacts else message.remote_jid
-            insighter.update(message)
+            if message.remote_jid != '-1':
+                if self._group_by_name:
+                    contact = self.contact_manager.get(message.remote_jid)
+                    if contact and contact.display_name is not None:
+                        common_contacts = self.contact_manager.get_contacts_by_display_name(contact.display_name)
+                        message.remote_jid = common_contacts[-1].jid if common_contacts else message.remote_jid
+                insighter.update(message)
 
     def _update_by_call(self, call):
         if not self._include_group and Contact.is_group(call.remote_jid):
@@ -64,12 +66,12 @@ class Insighter:
     """
     def __init__(self, title, format_):
         self.title = title
-        self.format = format_ or '{value}'
+        self.format = format_ or '{value:,}'
         self._rank = {}
 
     @property
     def winner(self):
-        return max(self._rank.values(), key=lambda item: item.value)
+        return max(self._rank.values(), key=lambda item: item.value) if self._rank else None
 
     def update(self, data):
         if self.is_valid_data(data):
@@ -147,7 +149,7 @@ class GreatestAudioAmountInsighter(MessageInsighter):
         :param check_media_name: If true the media name will be used to make sure the media is a voice message.
         """
         title = title or 'Greatest amount of audio'
-        format_ = format_ or '{value} audios'
+        format_ = format_ or '{value:,} audios'
         self.check_media_name = check_media_name
         super().__init__(title, format_)
 
@@ -164,7 +166,7 @@ class GreatestAudioAmountInsighter(MessageInsighter):
 class GreatestPhotoAmountInsighter(MessageInsighter):
     def __init__(self, title=None, format_=None):
         title = title or 'Greatest amount of photo'
-        format_ = format_ or '{value} photos'
+        format_ = format_ or '{value:,} photos'
         super().__init__(title, format_)
 
     def is_valid_data(self, message):
@@ -178,9 +180,12 @@ class GreatestPhotoAmountInsighter(MessageInsighter):
 class GreatestAmountOfDaysTalkingInsighter(MessageInsighter):
     def __init__(self, title=None, format_=None):
         title = title or 'Greatest amount of days talking'
-        format_ = format_ or '{value} days'
+        format_ = format_ or '{value:,} days'
         self._days_messages = dict()
         super().__init__(title, format_)
+    
+    def is_valid_data(self, message):
+        return message.date + timedelta(hours=24) > datetime(year=2000, month=1, day=1)
 
     def handle_data(self, message):
         if message.remote_jid not in self._days_messages:
@@ -242,6 +247,21 @@ class GreatestMessagesAmountInsighter(MessageInsighter):
         self._set_contact_rank_value(message.remote_jid, current_value + 1)
 
 
+class GreatestMyStatusAnsweredInsighter(MessageInsighter):
+    def __init__(self, title=None, format_=None):
+        title = title or 'Greater amount of your status answered'
+        format_ = format_ or '{value:,} answered status'
+        
+        super().__init__(title, format_)
+    
+    def is_valid_data(self, message):
+        return not message.from_me and message.quote_message and message.quote_message.from_me and message.quote_message.remote_jid == 'status@broadcast'
+
+    def handle_data(self, message):
+        current_value = self._rank[message.remote_jid].value if message.remote_jid in self._rank else 0
+        self._set_contact_rank_value(message.remote_jid, current_value + 1)
+
+
 class LongestCallInsighter(CallInsighter):
     def __init__(self, title=None, format_=None):
         title = title or 'Longest call'
@@ -260,7 +280,7 @@ class LongestCallInsighter(CallInsighter):
 class GreatestCallAmountInsighter(CallInsighter):
     def __init__(self, title=None, format_=None):
         title = title or 'Greatest amount of calls'
-        format_ = format_ or '{value} calls'
+        format_ = format_ or '{value:,} calls'
         super().__init__(title, format_)
     
     def is_valid_data(self, call):

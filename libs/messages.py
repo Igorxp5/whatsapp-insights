@@ -4,8 +4,6 @@ import sqlite3
 from enum import Enum
 from datetime import datetime
 
-from .contacts import JID_REGEXP
-
 
 class MessageManager:
     def __init__(self):
@@ -24,25 +22,43 @@ class MessageManager:
 
     @staticmethod
     def from_msgstore_db(db_path, tz=None):
+        sql = 'SELECT * FROM messages LEFT JOIN messages_quotes ON messages.quoted_row_id=messages_quotes._id'
         with sqlite3.connect(db_path) as conn:
             message_manager = MessageManager()
-            for row in conn.execute('SELECT * FROM messages'):
+            for row in conn.execute(sql):
                 remote_jid = row[1]
-                if JID_REGEXP.search(remote_jid):
-                    from_me = bool(row[2])
-                    status = row[4]
-                    data = row[6]
-                    timestamp = row[7]
-                    mime_type = row[9]
-                    media_name = row[12]
-                    media_duration = row[15]
-                    forwarded = row[37]
-                    message = Message(remote_jid, from_me, status, data, timestamp / 1000, 
-                                    forwarded, mime_type, media_duration, media_name, tz=tz)
-                    if remote_jid not in message_manager._messages:
-                        message_manager._contacts.add(remote_jid)
-                        message_manager._messages[remote_jid] = []
-                    message_manager._messages[remote_jid].append(message)
+                from_me = bool(row[2])
+                key_id = row[3]
+                status = row[4]
+                data = row[6]
+                timestamp = row[7]
+                mime_type = row[9]
+                media_name = row[12]
+                media_duration = row[15]
+                forwarded = row[37]
+                message = Message(remote_jid, from_me, key_id, status, data, timestamp / 1000, 
+                                  None, forwarded, mime_type, media_duration, media_name, tz=tz)
+                
+                if remote_jid not in message_manager._messages:
+                    message_manager._contacts.add(remote_jid)
+                    message_manager._messages[remote_jid] = []
+                message_manager._messages[remote_jid].append(message)
+
+                # quoted message
+                if row[31]:
+                    remote_jid = row[42+1]
+                    from_me = bool(row[42+2])
+                    key_id = row[42+3]
+                    status = row[42+4]
+                    data = row[42+6]
+                    timestamp = row[42+7]
+                    mime_type = row[42+9]
+                    media_name = row[42+12]
+                    media_duration = row[42+15]
+                    forwarded = row[42+37]
+                    message.quote_message = Message(remote_jid, from_me, key_id, status, data, timestamp / 1000, 
+                                                    None, forwarded, mime_type, media_duration, media_name, tz=tz)
+                
         return message_manager
 
 
@@ -60,16 +76,18 @@ class Message:
     MIME_TYPE_IMAGE_REGEXP = re.compile(r'image/.*')
     MIME_TYPE_VIDEO_REGEXP = re.compile(r'video/.*')
 
-    def __init__(self, remote_jid, from_me, status=None, data=None, date=None,
-                 forwarded=False, mime_type=None, media_duration=None, media_name=None, tz=None):
+    def __init__(self, remote_jid, from_me, key_id, status=None, data=None, date=None,
+                 quote_message=None, forwarded=False, mime_type=None, media_duration=None, media_name=None, tz=None):
         self.remote_jid = remote_jid
         self.from_me = bool(from_me)
+        self.key_id = key_id
         try:
             self.status = status and MessageStatus(status)
         except ValueError:
             self.status = status
         self.data = data
         self.date = datetime.fromtimestamp(date, tz=tz) if not isinstance(date, datetime) else date
+        self.quote_message = quote_message
         self.forwarded = forwarded
         self.mime_type = mime_type
         self.media_duration = media_duration

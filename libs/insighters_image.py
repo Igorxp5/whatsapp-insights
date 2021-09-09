@@ -239,12 +239,16 @@ def draw_insights(image, insighters, contacts, top_insighter=None):
     if top_insighter:
         draw_top_insigther_cards(image, top_insighter, contacts)
 
-    for i, insighter in enumerate(insighters):
-        _, profile_image = contacts.get(insighter.winner.jid, (None, None))
-        x = INSIGHT_CARD_LEFT_COLUMN_X if i % 2 == 0 else INSIGHT_CARD_RIGHT_COLUMN_X
-        y = CONTENT_BASE_Y + i // 2 * (INSIGHT_CARD_HEIGHT + INSIGHT_CARD_VERTICAL_MARGIN)
-        draw_insigher_card(image, profile_image or DEFAULT_PROFILE_IMAGE, insighter.title, 
-                           insighter.winner.formatted_value, x, y)
+    card_index = 0
+    for insighter in insighters:
+        winner = insighter.winner
+        if winner:
+            _, profile_image = contacts.get(winner.jid, (None, None))
+            x = INSIGHT_CARD_LEFT_COLUMN_X if card_index % 2 == 0 else INSIGHT_CARD_RIGHT_COLUMN_X
+            y = CONTENT_BASE_Y + card_index // 2 * (INSIGHT_CARD_HEIGHT + INSIGHT_CARD_VERTICAL_MARGIN)
+            draw_insigher_card(image, profile_image or DEFAULT_PROFILE_IMAGE, insighter.title, 
+                               winner.formatted_value, x, y)
+            card_index += 1
 
 def draw_insigher_card(image, profile_image, title, value, x, y):
     draw_card(image, x, y, INSIGHT_CARD_WIDTH, INSIGHT_CARD_HEIGHT)

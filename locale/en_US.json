@@ -9,19 +9,23 @@
     },
     "GreatestAudioAmountInsighter": {
         "title": "Greatest amount of audio",
-        "format": "{value} audios"
+        "format": "{value:,} audios"
     },
     "GreatestAmountOfDaysTalkingInsighter": {
         "title": "Greatest amount of days talking",
-        "format": "{value} days"
+        "format": "{value:,} days"
     },
     "GreatestPhotoAmountInsighter": {
         "title": "Greatest amount of photo",
-        "format": "{value} photos"
+        "format": "{value:,} photos"
     },
     "LongestConversationInsighter": {
         "title": "Longest uninterrupted conversation",
         "format": null
+    },
+    "GreatestMyStatusAnsweredInsighter": {
+        "title": "Greater amount of your status answered",
+        "format": "{value:,} status"
     },
     "LongestCallInsighter": {
         "title": "Longest call",
@@ -29,7 +33,7 @@
     },
     "GreatestCallAmountInsighter": {
         "title": "Greatest amount of calls",
-        "format": "{value} calls"
+        "format": "{value:,} calls"
     },
     "LongestTimeInCallsInsighter": {
         "title": "Longest time in calls",
