@@ -7,7 +7,6 @@ import base64
 import subprocess
 import contextlib
 
-from Crypto.Cipher import AES
 from difflib import SequenceMatcher
 
 
@@ -42,6 +41,8 @@ def pillow_image_to_base64(image, format):
 
 
 def decrypt_whatsapp_database(db_file, key_file, output):
+    from Crypto.Cipher import AES
+
     # Credits to https://github.com/B16f00t/whapa/blob/master/libs/whacipher.py
 
     if os.path.getsize(key_file) != 158:
