@@ -1,6 +1,4 @@
-import io
 import os
-import base64
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
@@ -345,4 +343,6 @@ def create_insights_image(insighters, contacts, profile_image_path=None, top_ins
     if FOOTER_ENABLED:
         draw_footer(image)
     
+    if os.path.exists(output_path):
+        os.remove(output_path)
     image.save(output_path, 'PNG')

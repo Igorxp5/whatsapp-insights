@@ -1,4 +1,3 @@
-import quopri
 import re
 import base64
 import sqlite3

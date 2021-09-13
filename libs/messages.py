@@ -31,7 +31,7 @@ class MessageManager:
                 key_id = row[3]
                 status = row[4]
                 data = row[6]
-                timestamp = row[7]
+                timestamp = row[7] or 0
                 mime_type = row[9]
                 media_name = row[12]
                 media_duration = row[15]
@@ -51,7 +51,7 @@ class MessageManager:
                     key_id = row[42+3]
                     status = row[42+4]
                     data = row[42+6]
-                    timestamp = row[42+7]
+                    timestamp = row[42+7] or 0
                     mime_type = row[42+9]
                     media_name = row[42+12]
                     media_duration = row[42+15]
