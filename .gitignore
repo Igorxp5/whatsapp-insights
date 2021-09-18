@@ -5,3 +5,9 @@ __pycache__/
 key
 wa.db*
 msgstore.db*
+
+# Workspace files
+contacts.vcf
+profile_pictures/
+chart-race.mp4
+insights.png

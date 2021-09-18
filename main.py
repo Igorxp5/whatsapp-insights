@@ -515,7 +515,7 @@ if __name__ == '__main__':
                               help='Directory to look for contact profile pictures. ' 
                                    'It will be used default profile picture when the program do not find')
     video_parser.add_argument('--contacts', dest='contacts', default='./contacts.vcf', help='Contacts export file path')
-    video_parser.add_argument('--output', dest='output', default='./chat-race.mp4', help='Chart Race output video file')
+    video_parser.add_argument('--output', dest='output', default='./chart-race.mp4', help='Chart Race output video file')
 
     rank_parser = subparsers.add_parser('generate-rank-file', help='Generate JSON file containing the rank of each insighter',
                                                   formatter_class=argparse.ArgumentDefaultsHelpFormatter)
