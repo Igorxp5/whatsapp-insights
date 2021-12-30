@@ -63,7 +63,14 @@ def handle_two_factor_verification(android, timeout=5):
         android.text(code, step=3)
 
 def extract_whatsapp_key(android, output_path):
+    set_wifi_state(android, True)
+
     clear_whatsapp_data(android)
+
+    try:
+        android.shell(['rm', '-r', '/sdcard/WhatsApp'])
+    except subprocess.CalledProcessError:
+        pass
 
     open_whatsapp(android)
     

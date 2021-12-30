@@ -47,6 +47,7 @@ class Android:
             self.adb(['root'], timeout=15)
         except subprocess.TimeoutExpired:
             logging.warning('Rooting the device process may have failed')
+        time.sleep(5)
 
     def pull(self, src, dst, timeout=600):
         process = subprocess.Popen(['adb', '-s', self.serial, 'wait-for-device', 'pull', src, dst], shell=True, text=True,

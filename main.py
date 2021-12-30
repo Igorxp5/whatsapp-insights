@@ -458,6 +458,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Collect insights from WhatsApp',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument('--debug', dest='debug', action='store_true', default=False, help='Log debug messages')
+
     subparsers = parser.add_subparsers(dest='command', description='commands')
     subparsers.required = True
 
@@ -528,7 +531,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
+    logging_level = logging.DEBUG if args.debug else logging.INFO
+
+    logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging_level)
 
     kwargs = vars(args)
+    kwargs.pop('debug')
     globals()[kwargs.pop('command').replace('-', '_')](**kwargs)

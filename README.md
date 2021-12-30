@@ -43,12 +43,14 @@ pip install -r requirements.txt
 
 ## Usage
 
-*Currently we support just accounts running in Android platform. If you're a iOS user, you can try to pull your WhatsApp database using [WhatsApp Parser Tool](https://github.com/B16f00t/whapa) or moving your Account to an Android device like Android Emulator.*
+*Currently we support just accounts running in Android platform. If you're an iOS user, you can try to pull your WhatsApp database using [WhatsApp Parser Tool](https://github.com/B16f00t/whapa) or moving your Account to an Android device like Android Emulator.*
 
 
 ### Extract WhatsApp Database Key
 
-Database backup for Android platform is stored at **/sdcard/WhatsApp/Databases**. You can access it using your Android File Manager, but you can't read it because it's encrypted. The only way to read it, it's having the key to decrypt it. That key is stored in internal directory of the app, but you can't access it. For key extraction we're gonna use a Android Emulator with root permissions to access internal files of WhatsApp.
+**Status:** NOT WORKING
+
+Database backup for Android platform is stored at **/sdcard/WhatsApp/Databases**. You can access it using your Android File Manager, but you can't read it because it's encrypted. The only way to read it, it's having the key to decrypt it. That key is stored in internal directory of the app at **/data/data/com.whatsapp/files**, but you can't access it. For key extraction we're gonna use an Android Emulator with root permissions to access internal files of WhatsApp.
 
 **Note: During this process you will be disconnected from your WhatsApp account in your device.**
 
