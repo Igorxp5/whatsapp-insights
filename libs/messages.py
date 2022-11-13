@@ -22,20 +22,29 @@ class MessageManager:
 
     @staticmethod
     def from_msgstore_db(db_path, tz=None):
-        sql = 'SELECT * FROM messages LEFT JOIN messages_quotes ON messages.quoted_row_id=messages_quotes._id'
+        sql = 'SELECT jid.raw_string, message.from_me, message.key_id, message.status, message.text_data, ' \
+              'message.timestamp, message_media.mime_type, message_media.media_name, message_media.media_duration, ' \
+              'message_forwarded.forward_score, ' \
+              'NULL, message_quoted.from_me, message_quoted.key_id, NULL, message_quoted.text_data, message_quoted.timestamp, ' \
+              'NULL, NULL, NULL, NULL, NULL, NULL ' \
+              'FROM message INNER JOIN chat ON message.chat_row_id = chat._id ' \
+              'INNER JOIN jid ON chat.jid_row_id = jid._id ' \
+              'LEFT JOIN message_media ON message._id = message_media.message_row_id ' \
+              'LEFT JOIN message_forwarded ON message._id = message_forwarded.message_row_id ' \
+              'LEFT JOIN message_quoted ON message._id = message_quoted.message_row_id '
         with sqlite3.connect(db_path) as conn:
             message_manager = MessageManager()
             for row in conn.execute(sql):
-                remote_jid = row[1]
-                from_me = bool(row[2])
-                key_id = row[3]
-                status = row[4]
-                data = row[6]
-                timestamp = row[7] or 0
-                mime_type = row[9]
-                media_name = row[12]
-                media_duration = row[15]
-                forwarded = row[37]
+                remote_jid = row[0]
+                from_me = bool(row[1])
+                key_id = row[2]
+                status = row[3]
+                data = row[4]
+                timestamp = row[5] or 0
+                mime_type = row[6]
+                media_name = row[7]
+                media_duration = row[8]
+                forwarded = bool(row[9])
                 message = Message(remote_jid, from_me, key_id, status, data, timestamp / 1000, 
                                   None, forwarded, mime_type, media_duration, media_name, tz=tz)
                 
@@ -45,17 +54,18 @@ class MessageManager:
                 message_manager._messages[remote_jid].append(message)
 
                 # quoted message
-                if row[31]:
-                    remote_jid = row[42+1]
-                    from_me = bool(row[42+2])
-                    key_id = row[42+3]
-                    status = row[42+4]
-                    data = row[42+6]
-                    timestamp = row[42+7] or 0
-                    mime_type = row[42+9]
-                    media_name = row[42+12]
-                    media_duration = row[42+15]
-                    forwarded = row[42+37]
+                quoted_key_id = row[12]
+                if quoted_key_id:
+                    remote_jid = row[10]
+                    from_me = bool(row[11])
+                    key_id = quoted_key_id
+                    status = row[13]
+                    data = row[14]
+                    timestamp = row[15] or 0
+                    mime_type = row[16]
+                    media_name = row[17]
+                    media_duration = row[18]
+                    forwarded = row[19]
                     message.quote_message = Message(remote_jid, from_me, key_id, status, data, timestamp / 1000, 
                                                     None, forwarded, mime_type, media_duration, media_name, tz=tz)
                 

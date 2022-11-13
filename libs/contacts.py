@@ -89,10 +89,14 @@ class ContactManager:
         with sqlite3.connect(db_path) as conn:
             contact_manager = ContactManager()
 
+            where_condition = ''
             if from_me:
-                sql = 'SELECT key_remote_jid FROM messages WHERE key_from_me = 1 GROUP BY key_remote_jid'
-            else:
-                sql = 'SELECT key_remote_jid FROM messages GROUP BY key_remote_jid'
+                where_condition = 'WHERE from_me = 1'
+
+            sql = 'SELECT jid.raw_string FROM message ' \
+                  'INNER JOIN chat ON message.chat_row_id = chat._id ' \
+                  'INNER JOIN jid ON chat.jid_row_id = jid._id ' \
+                  f'{where_condition} GROUP BY jid.raw_string'
 
             for row in conn.execute(sql):
                 jid = row[0]

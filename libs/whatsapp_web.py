@@ -42,9 +42,9 @@ class WhatsAppWeb:
         """, jid)
     
     def get_user_profile_image_url(self):
-        url = self._driver.find_element_by_xpath('//div[@id="side"]//img').get_attribute('src')
-        url = 'https' + url.lstrip('https://web.whatsapp.com/pp?e=')
-        return urllib.parse.unquote(url)
+        self._driver.find_element_by_xpath('//header[@data-testid="chatlist-header"]//img').click()
+        url = self._driver.find_element_by_xpath('//*[@id="app"]//div[@title="Photo Picker"]//img').get_attribute('src')
+        return url
 
     def _login(self):
         def _check_login(quit_event):

@@ -17,7 +17,7 @@ class CallManager:
     def from_msgstore_db(db_path, tz=None):
         with sqlite3.connect(db_path) as conn:
             call_manager = CallManager()
-            for row in conn.execute('SELECT jid.raw_string, call_log.from_me, call_log.timestamp, call_Log.video_call, call_log.duration, call_log.call_result FROM call_log ' \
+            for row in conn.execute('SELECT jid.raw_string, call_log.from_me, call_log.timestamp, call_log.video_call, call_log.duration, call_log.call_result FROM call_log ' \
                                     'INNER JOIN jid ON call_log.jid_row_id = jid._id'):
                 remote_jid, from_me, timestamp, video_call, duration, call_result = row
                 call = Call(remote_jid, from_me, timestamp / 1000, video_call, duration, call_result, tz=tz)
