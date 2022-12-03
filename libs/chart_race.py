@@ -32,6 +32,7 @@ COLOR_DARK_GRAY_2 = '#151515'
 
 IMAGE_WIDTH = 1920
 IMAGE_HEIGHT = 1080
+IMAGE_MODE = 'RGBA'
 IMAGE_SIZE = (IMAGE_WIDTH, IMAGE_HEIGHT)
 IMAGE_BACKGROUND = COLOR_WHITE_1
 DEFAULT_LANGUAGE = 'pt'
@@ -111,17 +112,20 @@ DATE_COLOR = COLOR_DARK_GRAY
 
 VIDEO_FRAME_RATE = 60
 VIDEO_END_FREEZE_TIME = 5
-DEFAULT_DAYS_PER_SECOND = 15
+DEFAULT_DAYS_PER_SECOND = 5
+ANIMATION_SMOOTHNESS = 1  # The higher the smoothness, the less accurate the amount of messages on the time scale
+VIDEO_SPEED = 1  # Drop frames
 SCALE_GROWTH_RATE = 1
 
 DEFAULT_PROFILE_IMAGE = Image.open(os.path.join(IMAGES_DIR, 'profile-image.png'))
-DATE_FORMAT = '%d %b %Y'
+DATE_FORMAT = '%b %Y'
 
 ContactBar = collections.namedtuple('ContactBar', ['contact_name', 'value', 'profile_image', 'color'])
 
+create_frame_cache_data = {'image': None, 'date': None}
+
 class PodiumUser:
-    def __init__(self, place, contact, value):
-        self.place = place
+    def __init__(self, contact, value):
         self.contact = contact
         self.value = value
 
@@ -130,24 +134,21 @@ class Podium:
     def __init__(self, contacts):
         self._podium_users = dict()
         self._podium = []
-        for i, contact in enumerate(contacts):
-            podium_user = PodiumUser(i, contact, 0)
+        self._sorted = False
+        for contact in contacts:
+            podium_user = PodiumUser(contact, 0)
             self._podium.append(podium_user)
             self._podium_users[contact.jid] = podium_user
 
     def __getitem__(self, index):
+        if not self._sorted:
+            self._podium.sort(reverse=True, key=lambda user: user.value)
+            self._sorted = True
         return self._podium[index]
 
     def increment_user_messages(self, jid, increment):
-        podium_user = self._podium_users[jid]
-        podium_user.value += increment
-        index = podium_user.place
-        while index > 0 and self._podium[index - 1].value < podium_user.value:
-            podium_user.place = index - 1
-            self._podium[index - 1].place = index
-            self._podium[index] = self._podium[index - 1]
-            self._podium[index - 1] = podium_user
-            index -= 1
+        self._podium_users[jid].value += increment
+        self._sorted = False
 
 
 def get_offset_center(image_size, obj_size):
@@ -170,7 +171,7 @@ def center_text(image, text, font, fill, x, y, width=None, height=None):
 
 
 def round_corner(radius, fill):
-    corner = Image.new('RGBA', (radius, radius), (0, 0, 0, 0))
+    corner = Image.new(IMAGE_MODE, (radius, radius), (0, 0, 0, 0))
     draw = ImageDraw.Draw(corner)
     draw.pieslice((0, 0, radius * 2, radius * 2), 180, 270, fill=fill)
     return corner
@@ -178,7 +179,7 @@ def round_corner(radius, fill):
 
 def round_rectangle(size, radius, fill):
     width, height = size
-    rectangle = Image.new('RGBA', size, fill)
+    rectangle = Image.new(IMAGE_MODE, size, fill)
     corner = round_corner(radius, fill)
     rectangle.paste(corner, (0, 0))
     rectangle.paste(corner.rotate(90), (0, height - radius)) # Rotate the corner and paste it
@@ -273,7 +274,7 @@ def draw_scale(image, scale):
     grid_unit_width = CHART_WIDTH / (scale / divisor)
     for c in range(total_markers + 1):
         x = CHART_BASE_X + grid_unit_width * c
-        value = math.floor((scale * c) / (scale / divisor))
+        value = int(c * divisor)
         text = '{:,}'.format(value)
         text_width, text_height = get_text_size(text, GRID_SCALE_TEXT_FONT)
         draw_text(image, text, GRID_SCALE_TEXT_COLOR, (x - text_width // 2, GRID_SCALE_BASE_Y), GRID_SCALE_TEXT_FONT)
@@ -305,7 +306,7 @@ def draw_contact_bar(image, x, y, width, profile_image, contact_name, value, col
     # Bar
     radius = CHART_BAR_HEIGHT // 2
     bar = round_rectangle((width, CHART_BAR_HEIGHT), radius, color)
-    image.paste(bar, (x, y), bar.convert('RGBA'))
+    image.paste(bar, (x, y), bar.convert(IMAGE_MODE))
 
     # Value
     text_x = x + width + CHART_BAR_VALUE_MARGIN
@@ -316,16 +317,23 @@ def draw_contact_bar(image, x, y, width, profile_image, contact_name, value, col
     # User profile image
     if resize_profile_image:
         profile_image = create_profile_image(profile_image, (CHART_BAR_HEIGHT, CHART_BAR_HEIGHT))
-    image.paste(profile_image, (x + width - CHART_BAR_HEIGHT, y), profile_image.convert('RGBA'))
+    image.paste(profile_image, (x + width - CHART_BAR_HEIGHT, y), profile_image.convert(IMAGE_MODE))
 
 
 def frame(contacts_bars, scale, date, resize_profile_image=True):
-    image = Image.new('RGBA', IMAGE_SIZE, color=IMAGE_BACKGROUND)
+    global create_frame_cache_data
 
-    draw_title(image)
-    draw_date(image, date)
+    if create_frame_cache_data['date'] != date:
+        image = Image.new(IMAGE_MODE, IMAGE_SIZE, color=IMAGE_BACKGROUND)
+        draw_title(image)
+        draw_date(image, date)
+        create_frame_cache_data['date'] = date
+        create_frame_cache_data['image'] = image
+
+    image = create_frame_cache_data['image'].copy()
+
     draw_scale(image, scale)
-    
+
     for i, contact_bar in enumerate(contacts_bars):
         bar_width = int(scale_user_bar_with(contact_bar.value, scale))
         y = CHART_BASE_Y + i * (CHART_BAR_HEIGHT + CHART_BAR_VERTICAL_MARGIN)
@@ -342,7 +350,7 @@ def generate_frame_data(podium, profile_images, contact_colors, last_scale):
             break
         podium_user = podium[i]
         display_name = podium_user.contact.display_name or f'+{JID_REGEXP.search(podium_user.contact.jid).group(1)}'
-        value = podium_user.value
+        value = int(podium_user.value)
         profile_image = profile_images[podium_user.contact.jid]
         contact_color = contact_colors[podium_user.contact.jid]
         contact_bar = ContactBar(display_name, value, profile_image, contact_color)
@@ -353,36 +361,47 @@ def generate_frame_data(podium, profile_images, contact_colors, last_scale):
 
     return contacts_bars, scale
 
-def generate_video_frames(messages, start_date, frame_step_timedelta, podium, profile_images, contact_colors):
-    frame_messages = []
-    current_date = start_date
-    next_frame_date = start_date + frame_step_timedelta
+def generate_video_frames(messages, start_date, frame_step_timedelta,
+                          podium, profile_images, contact_colors):
     frame_image = None
     scale = GRID_MIN_SCALE
+    current_date = start_date
+    group_message_range_timedelta = datetime.timedelta(days=7 * ANIMATION_SMOOTHNESS)
+    next_step_date = current_date + group_message_range_timedelta
+    frames_by_group = group_message_range_timedelta // frame_step_timedelta
+    user_total_messages = dict()
+    discard_counter = 0
+    discard_increment = (1 / (1 - VIDEO_SPEED)) if VIDEO_SPEED != 1 else 0
     for message in messages:
-        if message.date > next_frame_date:
-            while message.date > next_frame_date:
-                for frame_message in frame_messages:
-                    podium.increment_user_messages(frame_message.remote_jid, 1)
-                
-                contacts_bars, scale = generate_frame_data(podium, profile_images, contact_colors, scale)
-                frame_image = frame(contacts_bars, scale, next_frame_date, resize_profile_image=False)
-                
+        if message.date < next_step_date:
+            user_total_messages.setdefault(message.remote_jid, 0)
+            user_total_messages[message.remote_jid] += 1
+        else:
+            for remote_jid in user_total_messages:
+                user_total_messages[remote_jid] = user_total_messages[remote_jid] / frames_by_group
+
+            for _ in range(frames_by_group):
+                for remote_jid in user_total_messages:
+                    podium.increment_user_messages(remote_jid, user_total_messages[remote_jid])
+
+                if discard_counter < 1:
+                    contacts_bars, scale = generate_frame_data(podium, profile_images, contact_colors, scale)
+                    frame_image = frame(contacts_bars, scale, current_date, resize_profile_image=False)
+                    discard_counter += discard_increment
+                else:
+                    discard_counter -= 1
+
                 yield frame_image
                 
-                current_date += frame_step_timedelta
-                next_frame_date += frame_step_timedelta
-                frame_messages = []
-            frame_messages.append(message)
-        else:
-            frame_messages.append(message)
-    else:
-        contacts_bars, scale = generate_frame_data(frame_messages, podium, profile_images, contact_colors, scale)
-        frame_image = frame(contacts_bars, scale, current_date, resize_profile_image=False)
-        yield frame_image
-    
-    for _ in range(VIDEO_END_FREEZE_TIME * VIDEO_FRAME_RATE):
-        yield frame_image
+            current_date += group_message_range_timedelta
+            next_step_date = current_date + group_message_range_timedelta
+            user_total_messages = dict()
+
+    # TODO: Last messages aren't being included
+
+    if frame_image:
+        for _ in range(VIDEO_END_FREEZE_TIME * VIDEO_FRAME_RATE):
+            yield frame_image
 
 def group_messages_by_contact_name(contact_manager, sorted_messages):
     messages = list(sorted_messages)
@@ -401,7 +420,6 @@ def group_messages_by_contact_name(contact_manager, sorted_messages):
 
 
 def create_chart_race_video(contact_manager, message_manager, output, locale_='en_US.UTF-8', group_contact_by_name=True):
-
     logging.info('Sorting messages by date...')
     sorted_messages = list(message_manager)
     sorted_messages.sort(key=lambda message: message.date)
@@ -438,13 +456,15 @@ def create_chart_race_video(contact_manager, message_manager, output, locale_='e
     
     logging.info('Rendering video...')
     total_frames = (end_date - start_date).total_seconds() / elapsed_timestamp_by_frame
-    fourcc = cv2.VideoWriter.fourcc(*'MP4V')
+    fourcc = cv2.VideoWriter.fourcc(*'mp4v')
     video_writer = cv2.VideoWriter(output, fourcc, VIDEO_FRAME_RATE, IMAGE_SIZE)
     frame_step_timedelta = datetime.timedelta(seconds=elapsed_timestamp_by_frame)
     with utils.context_locale(locale_):
         frames = generate_video_frames(messages, start_date, frame_step_timedelta, podium, profile_images, contact_colors)
         tqdm_iterator = tqdm.tqdm(frames, total=total_frames)
-        for frame in tqdm_iterator:
-            cv_image = cv2.cvtColor(np.array(frame), cv2.COLOR_RGBA2BGR)
-            video_writer.write(cv_image)
-    video_writer.release()
+        try:
+            for frame in tqdm_iterator:
+                cv_image = cv2.cvtColor(np.array(frame), cv2.COLOR_RGBA2BGR)
+                video_writer.write(cv_image)
+        finally:
+            video_writer.release()
