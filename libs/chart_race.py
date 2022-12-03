@@ -5,17 +5,19 @@ import tqdm
 import math
 import base64
 import random
+import typing
 import logging
 import colorsys
 import datetime
-import collections
+import calendar
+import dataclasses
 
 import numpy as np
 
 from . import utils
 from .contacts import Contact, JID_REGEXP
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageColor
 
 # Paths
 ROOT_DIR = os.path.join(os.path.dirname(__file__), '..')
@@ -111,24 +113,50 @@ DATE_TEXT_SIZE = 60
 DATE_FONT = ImageFont.truetype(ROBOTO_BOLD_FONT_PATH, DATE_TEXT_SIZE)
 DATE_COLOR = COLOR_DARK_GRAY
 
+# Video settings
 VIDEO_FRAME_RATE = 60
 VIDEO_END_FREEZE_TIME = 5
 DEFAULT_DAYS_PER_SECOND = 5
-ANIMATION_SMOOTHNESS = 1  # The higher the smoothness, the less accurate the amount of messages on the time scale
 VIDEO_SPEED = 1  # Drop frames
+ELAPSED_TIMESTAMP_BY_FRAME = (86400 * DEFAULT_DAYS_PER_SECOND) / VIDEO_FRAME_RATE
+
+# Animation settings
 SCALE_GROWTH_RATE = 1
+ANIMATION_SMOOTHNESS = 1  # The higher the smoothness, the less accurate the amount of messages on the time scale
+
+# Date transition animatino settings
+DATE_TRANSITION_DURATION = 0.7
+DATE_TRANSITION_TOTAL_FRAMES = math.ceil(DATE_TRANSITION_DURATION * VIDEO_FRAME_RATE)
+DATE_TRANSITION_Y_OFFSET = 50
+DATE_TRANSITION_Y_OFFSET_STEP = DATE_TRANSITION_Y_OFFSET / (DATE_TRANSITION_DURATION * VIDEO_FRAME_RATE)
+DATE_TRANSITION_OPACITY_STEP = 1 / (DATE_TRANSITION_DURATION * VIDEO_FRAME_RATE)
 
 DEFAULT_PROFILE_IMAGE = Image.open(os.path.join(IMAGES_DIR, 'profile-image.png'))
 DATE_FORMAT = '%b %Y'
 
-ContactBar = collections.namedtuple('ContactBar', ['contact_name', 'value', 'profile_image', 'color'])
 
-create_frame_cache_data = {'image': None, 'date': None}
+@dataclasses.dataclass
+class ContactBar:
+    color: typing.Tuple[int, int, int]
+    contact_name: str = None
+    value: float = 0
+    profile_image: Image = None
 
+
+@dataclasses.dataclass
+class AnimationState:
+    current_frame: int = 0
+    base_image: Image = None
+    current_date: datetime.datetime = None
+    group_message_range_timedelta: datetime.timedelta = None
+    frame_step_timedelta: datetime.timedelta = None
+    date_transition_start_frame: int = None
+
+
+@dataclasses.dataclass
 class PodiumUser:
-    def __init__(self, contact, value):
-        self.contact = contact
-        self.value = value
+    contact: Contact
+    value: float
 
 
 class Podium:
@@ -232,19 +260,25 @@ def random_color(hue_range, saturation_range, brightness_range):
 
 
 def draw_text(image, text, fill, position, font, letter_spacing=0):
-    draw = ImageDraw.Draw(image)
     width, height = get_text_size(text, font, letter_spacing)
-    
-    horizontal, vertical = position
+    width, height = int(width), int(height)
+
+    text_placeholder = Image.new('RGBA', (width, height), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(text_placeholder)
+
+    x, y = position
     text_center_offset = get_offset_center(image.size, (width, height))
-    horizontal = text_center_offset[0] if horizontal == 'center' else horizontal
-    vertical = text_center_offset[1] // 2 if vertical == 'center' else vertical
+    x = text_center_offset[0] if x == 'center' else x
+    y = text_center_offset[1] // 2 if y == 'center' else y
+
+    x, y = int(x), int(y)
 
     drawed_width = 0
-    for i, letter in enumerate(text):
-        offset = horizontal + drawed_width, vertical
-        draw.text(offset, letter, fill=fill, font=font)
+    for _, letter in enumerate(text):
+        draw.text((drawed_width, 0), letter, fill=fill, font=font)
         drawed_width += font.getsize(letter)[0] + letter_spacing
+
+    image.paste(text_placeholder, (x, y), mask=text_placeholder)
 
 
 def draw_title(image):
@@ -252,12 +286,14 @@ def draw_title(image):
                 0, TITLE_BASE_Y, width=IMAGE_WIDTH)
 
 
-def draw_date(image, date):
+def draw_date(image, date, y_offset=0, opacity=1):
+    opacity = int(max(0, min(255, opacity * 255)))
+    color = DATE_COLOR + hex(opacity)[2:].zfill(2)
     text = date.strftime(DATE_FORMAT).upper()
     width, height = get_text_size(text, DATE_FONT)
     x = IMAGE_WIDTH - width - HORIZONTAL_PADDING
-    y = IMAGE_HEIGHT - VERTICAL_PADDING - height
-    draw_text(image, text, DATE_COLOR, (x, y), DATE_FONT)
+    y = IMAGE_HEIGHT - VERTICAL_PADDING - height + y_offset
+    draw_text(image, text, color, (x, y), DATE_FONT)
 
 
 def draw_scale(image, scale):
@@ -324,17 +360,46 @@ def draw_contact_bar(image, x, y, width, profile_image, contact_name, value, col
     image.paste(profile_image, (x + width - CHART_BAR_HEIGHT, y), profile_image.convert(IMAGE_MODE))
 
 
-def frame(contacts_bars, scale, date, resize_profile_image=True):
-    global create_frame_cache_data
+def _frame_generate_base_image():
+    image = Image.new(IMAGE_MODE, IMAGE_SIZE, color=IMAGE_BACKGROUND)
+    draw_title(image)
+    return image
 
-    if create_frame_cache_data['date'] != date:
-        image = Image.new(IMAGE_MODE, IMAGE_SIZE, color=IMAGE_BACKGROUND)
-        draw_title(image)
-        draw_date(image, date)
-        create_frame_cache_data['date'] = date
-        create_frame_cache_data['image'] = image
 
-    image = create_frame_cache_data['image'].copy()
+def _frame_handle_date_transition(image, animation_state):
+    current_month_last_day = calendar.monthrange(animation_state.current_date.year, animation_state.current_date.month)[1]
+    next_month = datetime.datetime(year=animation_state.current_date.year, month=animation_state.current_date.month, day=current_month_last_day)
+    next_month += datetime.timedelta(days=1)
+    remaining_frames_to_next_month = math.ceil((next_month - animation_state.current_date) / animation_state.frame_step_timedelta)
+    is_month_close_to_change = remaining_frames_to_next_month <= DATE_TRANSITION_TOTAL_FRAMES
+    
+    if not animation_state.date_transition_start_frame and is_month_close_to_change:
+        animation_state.date_transition_start_frame = animation_state.current_frame
+    
+    if animation_state.date_transition_start_frame and not is_month_close_to_change:
+        animation_state.date_transition_start_frame = None
+
+    if not animation_state.date_transition_start_frame:
+        draw_date(image, animation_state.current_date)
+    else:
+        date_transition_frame = animation_state.current_frame - animation_state.date_transition_start_frame
+
+        current_date_y_offset = int(-DATE_TRANSITION_Y_OFFSET_STEP * date_transition_frame)
+        current_date_opacity = 1 - (DATE_TRANSITION_OPACITY_STEP * date_transition_frame)
+        draw_date(image, animation_state.current_date, y_offset=current_date_y_offset, opacity=current_date_opacity)
+
+        next_date_y_offset = DATE_TRANSITION_Y_OFFSET - (DATE_TRANSITION_Y_OFFSET_STEP * date_transition_frame)
+        next_date_opacity = DATE_TRANSITION_OPACITY_STEP * date_transition_frame
+        draw_date(image, next_month, y_offset=next_date_y_offset, opacity=next_date_opacity)
+
+
+def frame(contacts_bars, scale, animation_state, resize_profile_image=True):
+    if not animation_state.base_image:
+        animation_state.base_image = image = _frame_generate_base_image()
+
+    image = animation_state.base_image.copy()
+
+    _frame_handle_date_transition(image, animation_state)
 
     draw_scale(image, scale)
 
@@ -342,7 +407,7 @@ def frame(contacts_bars, scale, date, resize_profile_image=True):
         bar_width = int(scale_user_bar_with(contact_bar.value, scale))
         y = CHART_BASE_Y + i * (CHART_BAR_HEIGHT + CHART_BAR_VERTICAL_MARGIN)
         draw_contact_bar(image, CHART_BASE_X, y, bar_width, contact_bar.profile_image, contact_bar.contact_name, 
-                         contact_bar.value, contact_bar.color, resize_profile_image=resize_profile_image)
+                         int(contact_bar.value), contact_bar.color, resize_profile_image=resize_profile_image)
 
     return image
 
@@ -357,7 +422,7 @@ def generate_frame_data(podium, profile_images, contact_colors, last_scale):
         value = int(podium_user.value)
         profile_image = profile_images[podium_user.contact.jid]
         contact_color = contact_colors[podium_user.contact.jid]
-        contact_bar = ContactBar(display_name, value, profile_image, contact_color)
+        contact_bar = ContactBar(contact_color, display_name, value, profile_image)
         contacts_bars.append(contact_bar)
     
     first_user_based_scale = podium[0].value * GRID_FIRST_USER_SCALE_FACTOR
@@ -365,13 +430,13 @@ def generate_frame_data(podium, profile_images, contact_colors, last_scale):
 
     return contacts_bars, scale
 
-def generate_video_frames(messages, start_date, frame_step_timedelta,
-                          podium, profile_images, contact_colors):
+def generate_video_frames(messages, start_date, frame_step_timedelta, podium, profile_images, contact_colors):
     frame_image = None
     scale = GRID_MIN_SCALE
-    current_date = start_date
     group_message_range_timedelta = datetime.timedelta(days=7 * ANIMATION_SMOOTHNESS)
-    next_step_date = current_date + group_message_range_timedelta
+    animation_state = AnimationState(current_date=start_date, frame_step_timedelta=frame_step_timedelta,
+                                     group_message_range_timedelta=group_message_range_timedelta)
+    next_step_date = animation_state.current_date + group_message_range_timedelta
     frames_by_group = group_message_range_timedelta // frame_step_timedelta
     user_total_messages = dict()
     drop_counter = 0
@@ -390,15 +455,17 @@ def generate_video_frames(messages, start_date, frame_step_timedelta,
 
                 if drop_counter < 1:
                     contacts_bars, scale = generate_frame_data(podium, profile_images, contact_colors, scale)
-                    frame_image = frame(contacts_bars, scale, current_date, resize_profile_image=False)
+                    frame_image = frame(contacts_bars, scale, animation_state, resize_profile_image=False)
                     drop_counter += drop_increment
                 else:
                     drop_counter -= 1
 
                 yield frame_image
-                
-            current_date += group_message_range_timedelta
-            next_step_date = current_date + group_message_range_timedelta
+
+                animation_state.current_frame += 1
+                animation_state.current_date += frame_step_timedelta
+
+            next_step_date = animation_state.current_date + group_message_range_timedelta
             user_total_messages = dict()
 
     # TODO: Last messages aren't being included
@@ -456,15 +523,13 @@ def create_chart_race_video(contact_manager, message_manager, output, locale_='e
     start_date = messages[0].date
     end_date = messages[-1].date
 
-    elapsed_timestamp_by_frame = (86400 * DEFAULT_DAYS_PER_SECOND) / VIDEO_FRAME_RATE
-
     podium = Podium(contact_manager.get_users())
     
     logging.info('Rendering video...')
-    total_frames = (end_date - start_date).total_seconds() / elapsed_timestamp_by_frame
+    total_frames = (end_date - start_date).total_seconds() / ELAPSED_TIMESTAMP_BY_FRAME
     fourcc = cv2.VideoWriter.fourcc(*'mp4v')
     video_writer = cv2.VideoWriter(output, fourcc, VIDEO_FRAME_RATE, IMAGE_SIZE)
-    frame_step_timedelta = datetime.timedelta(seconds=elapsed_timestamp_by_frame)
+    frame_step_timedelta = datetime.timedelta(seconds=ELAPSED_TIMESTAMP_BY_FRAME)
     with utils.context_locale(locale_):
         frames = generate_video_frames(messages, start_date, frame_step_timedelta, podium, profile_images, contact_colors)
         tqdm_iterator = tqdm.tqdm(frames, total=total_frames)
