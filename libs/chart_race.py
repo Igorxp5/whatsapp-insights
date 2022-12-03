@@ -80,7 +80,8 @@ CHART_BAR_VALUE_MARGIN = round(10 * RESOLUTION_FACTOR)
 CHART_BAR_COLOR_HUE_RANGE = [0.35, 0.45]
 CHART_BAR_COLOR_SATURATION_RANGE = [0.4, 0.55]
 CHART_BAR_COLOR_BRIGHTNESS_RANGE = [0.2, 0.5]
-
+MAX_CONTACT_BAR_COLOR_BRIGHTNESS = 0.6
+MIN_CONTACT_BAR_COLOR_SATURATION = 0.6
 
 # Chart constants
 CHART_WIDTH = round(1200 * RESOLUTION_FACTOR)
@@ -209,13 +210,16 @@ def scale_user_bar_with(value, scale):
     return max((CHART_WIDTH / scale) * value, CHART_BAR_HEIGHT)
 
 
-def contact_bar_color(image):
+def choose_contact_bar_color(contact):
+    if not contact.profile_image:
+        return random_color(CHART_BAR_COLOR_HUE_RANGE, CHART_BAR_COLOR_SATURATION_RANGE, CHART_BAR_COLOR_BRIGHTNESS_RANGE)
+    image = Image.open(io.BytesIO(base64.b64decode(contact.profile_image)))
     total_pixels = image.size[0] * image.size[1]
-    dominant_color = max([c for c in image.getcolors(total_pixels) if c[1][3] != 0], key=lambda c: c[0])[1]
+    dominant_color = max([c for c in image.getcolors(total_pixels) if len(c[1]) >= 3 or c[1][3] >= 70], key=lambda c: c[0])[1]
     dominant_color = [c / 255 for c in dominant_color]
     dominant_color = [dominant_color[i] for i in range(3)]  # remove alpha if it's present
-    hue, _, _ = colorsys.rgb_to_hsv(*dominant_color)
-    r, g, b = colorsys.hsv_to_rgb(hue, 0.27, 0.73)
+    hue, saturation, brightness = colorsys.rgb_to_hsv(*dominant_color)
+    r, g, b = colorsys.hsv_to_rgb(hue, max(saturation, MIN_CONTACT_BAR_COLOR_SATURATION), min(brightness, MAX_CONTACT_BAR_COLOR_BRIGHTNESS))
     return int(r * 256), int(g * 256), int(b * 256)
 
 
@@ -370,8 +374,8 @@ def generate_video_frames(messages, start_date, frame_step_timedelta,
     next_step_date = current_date + group_message_range_timedelta
     frames_by_group = group_message_range_timedelta // frame_step_timedelta
     user_total_messages = dict()
-    discard_counter = 0
-    discard_increment = (1 / (1 - VIDEO_SPEED)) if VIDEO_SPEED != 1 else 0
+    drop_counter = 0
+    drop_increment = (1 / (1 - VIDEO_SPEED)) if VIDEO_SPEED != 1 else 0
     for message in messages:
         if message.date < next_step_date:
             user_total_messages.setdefault(message.remote_jid, 0)
@@ -384,12 +388,12 @@ def generate_video_frames(messages, start_date, frame_step_timedelta,
                 for remote_jid in user_total_messages:
                     podium.increment_user_messages(remote_jid, user_total_messages[remote_jid])
 
-                if discard_counter < 1:
+                if drop_counter < 1:
                     contacts_bars, scale = generate_frame_data(podium, profile_images, contact_colors, scale)
                     frame_image = frame(contacts_bars, scale, current_date, resize_profile_image=False)
-                    discard_counter += discard_increment
+                    drop_counter += drop_increment
                 else:
-                    discard_counter -= 1
+                    drop_counter -= 1
 
                 yield frame_image
                 
@@ -419,7 +423,8 @@ def group_messages_by_contact_name(contact_manager, sorted_messages):
     return messages
 
 
-def create_chart_race_video(contact_manager, message_manager, output, locale_='en_US.UTF-8', group_contact_by_name=True):
+def create_chart_race_video(contact_manager, message_manager, output, locale_='en_US.UTF-8',
+                            group_contact_by_name=True, exclude_no_display_name_contacts=False):
     logging.info('Sorting messages by date...')
     sorted_messages = list(message_manager)
     sorted_messages.sort(key=lambda message: message.date)
@@ -429,7 +434,9 @@ def create_chart_race_video(contact_manager, message_manager, output, locale_='e
     messages = []
     for message in sorted_messages:
         if Contact.is_user(message.remote_jid):
-            messages.append(message)
+            contact = contact_manager.get(message.remote_jid)
+            if (not exclude_no_display_name_contacts or (contact and contact.display_name)):
+                messages.append(message)
 
     if group_contact_by_name:
         logging.info('Grouping contacts by name...')
@@ -444,8 +451,7 @@ def create_chart_race_video(contact_manager, message_manager, output, locale_='e
         else:
             profile_images[contact.jid] = DEFAULT_PROFILE_IMAGE
         profile_images[contact.jid] = create_profile_image(profile_images[contact.jid], (CHART_BAR_HEIGHT, CHART_BAR_HEIGHT))
-        contact_colors[contact.jid] = random_color(CHART_BAR_COLOR_HUE_RANGE, CHART_BAR_COLOR_SATURATION_RANGE, 
-                                                   CHART_BAR_COLOR_BRIGHTNESS_RANGE)
+        contact_colors[contact.jid] = choose_contact_bar_color(contact)
 
     start_date = messages[0].date
     end_date = messages[-1].date

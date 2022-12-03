@@ -288,7 +288,7 @@ def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters
     create_insights_image(common_insighters, image_contacts, user_profile_image, top_insighter=top_insighter, output_path=output)
 
 
-def generate_video(msg_store, locale, profile_pictures_dir, contacts, output):
+def generate_video(msg_store, locale, profile_pictures_dir, contacts, output, exclude_no_display_name_contacts=False):
     if not msg_store or not os.path.exists(msg_store):
         logging.error(f'Messages database not found in path "{msg_store}"')
         return
@@ -322,7 +322,8 @@ def generate_video(msg_store, locale, profile_pictures_dir, contacts, output):
     
     logging.info('Loading messages...')
     message_manager = MessageManager.from_msgstore_db(msg_store)
-    create_chart_race_video(contact_manager, message_manager, output, locale, group_contact_by_name=True)
+    create_chart_race_video(contact_manager, message_manager, output, locale, group_contact_by_name=True,
+                            exclude_no_display_name_contacts=exclude_no_display_name_contacts)
 
 
 def extract_profile_images(msg_store, output, chromedriver, update_existent_images=True):
@@ -526,6 +527,8 @@ if __name__ == '__main__':
                                    'It will be used default profile picture when the program do not find')
     video_parser.add_argument('--contacts', dest='contacts', default='./contacts.vcf', help='Contacts export file path')
     video_parser.add_argument('--output', dest='output', default='./chart-race.mp4', help='Chart Race output video file')
+    video_parser.add_argument('--exclude-no-display-name-contacts', default=False, action='store_true',
+                              help='Not include contacts without display name')
 
     rank_parser = subparsers.add_parser('generate-rank-file', help='Generate JSON file containing the rank of each insighter',
                                                   formatter_class=argparse.ArgumentDefaultsHelpFormatter)

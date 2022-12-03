@@ -142,6 +142,7 @@ python main.py generate-video --contacts contacts.vcf --msg-store msgstore.db --
 - **--msg-store:** If you have saved ```msgstore.db``` out of the project workspace in you can pass the path to it here.
 - **--locale:** Set the language of the insights descriptions. Currenly supporting: ```en_US``` and ```pt_BR```.
 - **--profile-pictures-dir:** Directory with your contacts profile images. Set this if you have saved them out of the project workspace.
+- **--exclude-no-display-name-contacts:** Not include contacts without display name.
 
 
 ## Insighters
