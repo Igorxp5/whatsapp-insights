@@ -50,6 +50,8 @@ pip install -r requirements.txt
 
 **Status:** NOT WORKING
 
+**Unfortunetaly extract WhatsApp database requires a lot of steps/dependencies. To use generating insights image and generating chart race video features extract WhatsApp database by yourself. You can backup your messages to Google Drive, login into your WhatsApp account on an Android Emulator, restore the backup and pull _/data/data/com.whatsapp/databases/msgstore.db_**.
+
 Database backup for Android platform is stored at **/sdcard/WhatsApp/Databases**. You can access it using your Android File Manager, but you can't read it because it's encrypted. The only way to read it, it's having the key to decrypt it. That key is stored in internal directory of the app at **/data/data/com.whatsapp/files**, but you can't access it. For key extraction we're gonna use an Android Emulator with root permissions to access internal files of WhatsApp.
 
 **Note: During this process you will be disconnected from your WhatsApp account in your device.**
@@ -70,6 +72,8 @@ See more options running ```python main.py extract-key --help```.
 
 
 ### Extract WhatsApp Database
+
+**Status:** NOT WORKING
 
 For WhatsApp database extraction you need the key databae already in the workspace folder, it will be needed for decrypting step.
 
@@ -97,6 +101,8 @@ python main.py extract-profile-images
 
 - **--msg-store:** If you have saved ```msgstore.db``` out of the project workspace in you can pass the path to it here.
 - **--chromedriver:** Pass here the **chromedriver** binary for your Chrome brower version.
+- **--output:** Directory where to save the contacts profile images.
+- **--update-existent-images:** Extract contacts profile images even it is already downloaded.
 
 See more options running ```python main.py extract-profile-images --help```.
 

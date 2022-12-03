@@ -325,7 +325,7 @@ def generate_video(msg_store, locale, profile_pictures_dir, contacts, output):
     create_chart_race_video(contact_manager, message_manager, output, locale, group_contact_by_name=True)
 
 
-def extract_profile_images(msg_store, output, chromedriver):
+def extract_profile_images(msg_store, output, chromedriver, update_existent_images=True):
     if not msg_store or not os.path.exists(msg_store):
         logging.error(f'Messages database not found in path "{msg_store}"')
         return
@@ -347,6 +347,9 @@ def extract_profile_images(msg_store, output, chromedriver):
 
     os.makedirs(output, exist_ok=True)
 
+    logging.info('Get your phone and be prepared to scan WhatsApp Web QR code. Press any key to continue...')
+    input()
+
     logging.info('Logging into WhatsApp Web...')
     whatsapp_web = WhatsAppWeb(chromedriver)
 
@@ -359,15 +362,17 @@ def extract_profile_images(msg_store, output, chromedriver):
 
     for contact in contact_manager.get_users():
         phone_number = JID_REGEXP.search(contact.jid).group(1)
-        logging.info(f'Getting profile image for "{phone_number}"...')
-        image_url = whatsapp_web.get_contact_profile_image_url(contact.jid)
-        if image_url:
-            with open(os.path.join(output, f'{contact.jid}.jpg'), 'wb') as file:
-                response = requests.get(image_url)
-                file.write(response.content)
-            logging.info(f'Profile image for "{phone_number}" has been saved!')
-        else:
-            logging.info(f'"{phone_number}" does not have profile image!')
+        output_image_path = os.path.join(output, f'{contact.jid}.jpg')
+        if not os.path.exists(output_image_path) or update_existent_images:
+            logging.info(f'Getting profile image for "{phone_number}"...')
+            image_url = whatsapp_web.get_contact_profile_image_url(contact.jid)
+            if image_url:
+                with open(output_image_path, 'wb') as file:
+                    response = requests.get(image_url)
+                    file.write(response.content)
+                logging.info(f'Profile image for "{phone_number}" has been saved!')
+            else:
+                logging.info(f'"{phone_number}" does not have profile image!')
 
 
 def generate_rank_file(msg_store, locale, contacts, insighters, output):
@@ -493,6 +498,8 @@ if __name__ == '__main__':
     profile_images_parser.add_argument('--output', dest='output', default='./profile_pictures', 
                                        help='Directory where to save the contacts profile images')
     profile_images_parser.add_argument('--chromedriver', dest='chromedriver', default=f'./{CHROMEDRIVER_BIN}', help='Chrome Driver path')
+    profile_images_parser.add_argument('--update-existent-images', dest='update_existent_images', default=False, action='store_true',
+                                       help='Extract contacts profile images even it is already downloaded')
 
     image_parser = subparsers.add_parser('generate-image', help='Generate Insights image',
                                          formatter_class=argparse.ArgumentDefaultsHelpFormatter)
