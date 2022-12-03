@@ -139,6 +139,9 @@ class Contact:
     def __repr__(self):
         return f'{self.__class__.__name__}({repr(self.jid)}, {repr(self.display_name)})'
     
+    def __hash__(self):
+        return hash(f'_____{self.__class__.__name__}_____{repr(self.jid)}_____')
+
     def to_vcard(self):
         vcard = vobject.vCard()
         vcard.add('TEL').value = f'+{self.contact_id}'
