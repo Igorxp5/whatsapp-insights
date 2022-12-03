@@ -335,10 +335,7 @@ def frame(contacts_bars, scale, date, resize_profile_image=True):
     return image
 
 
-def generate_frame_data(frame_messages, podium, profile_images, contact_colors, last_scale):
-    for frame_message in frame_messages:
-        podium.increment_user_messages(frame_message.remote_jid, 1)
-    
+def generate_frame_data(podium, profile_images, contact_colors, last_scale):
     contacts_bars = []
     for i in range(CHART_BAR_TOTAL_USERS):
         if podium[i].value == 0:
@@ -356,20 +353,25 @@ def generate_frame_data(frame_messages, podium, profile_images, contact_colors, 
 
     return contacts_bars, scale
 
-def generate_video_frames(messages, start_date, elapsed_timestamp_by_frame, podium, profile_images, contact_colors):
+def generate_video_frames(messages, start_date, frame_step_timedelta, podium, profile_images, contact_colors):
     frame_messages = []
     current_date = start_date
-    next_frame_date = start_date + datetime.timedelta(seconds=elapsed_timestamp_by_frame)
+    next_frame_date = start_date + frame_step_timedelta
     frame_image = None
     scale = GRID_MIN_SCALE
     for message in messages:
         if message.date > next_frame_date:
             while message.date > next_frame_date:
-                contacts_bars, scale = generate_frame_data(frame_messages, podium, profile_images, contact_colors, scale)
+                for frame_message in frame_messages:
+                    podium.increment_user_messages(frame_message.remote_jid, 1)
+                
+                contacts_bars, scale = generate_frame_data(podium, profile_images, contact_colors, scale)
                 frame_image = frame(contacts_bars, scale, next_frame_date, resize_profile_image=False)
+                
                 yield frame_image
-                current_date += datetime.timedelta(seconds=elapsed_timestamp_by_frame)
-                next_frame_date += datetime.timedelta(seconds=elapsed_timestamp_by_frame)
+                
+                current_date += frame_step_timedelta
+                next_frame_date += frame_step_timedelta
                 frame_messages = []
             frame_messages.append(message)
         else:
@@ -438,8 +440,9 @@ def create_chart_race_video(contact_manager, message_manager, output, locale_='e
     total_frames = (end_date - start_date).total_seconds() / elapsed_timestamp_by_frame
     fourcc = cv2.VideoWriter.fourcc(*'MP4V')
     video_writer = cv2.VideoWriter(output, fourcc, VIDEO_FRAME_RATE, IMAGE_SIZE)
+    frame_step_timedelta = datetime.timedelta(seconds=elapsed_timestamp_by_frame)
     with utils.context_locale(locale_):
-        frames = generate_video_frames(messages, start_date, elapsed_timestamp_by_frame, podium, profile_images, contact_colors)
+        frames = generate_video_frames(messages, start_date, frame_step_timedelta, podium, profile_images, contact_colors)
         tqdm_iterator = tqdm.tqdm(frames, total=total_frames)
         for frame in tqdm_iterator:
             cv_image = cv2.cvtColor(np.array(frame), cv2.COLOR_RGBA2BGR)
