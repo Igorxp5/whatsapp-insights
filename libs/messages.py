@@ -1,27 +1,79 @@
 import re
+import typing
 import sqlite3
 
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, tzinfo
+
+from .type import Jid, FilePath, MimeType
+
+TMessage = typing.TypeVar('TMessage', bound='Message')
+
+
+class Message:
+    MIME_TYPE_AUDIO_REGEXP = re.compile(r'audio/.*')
+    MIME_TYPE_VOICE_REGEXP = re.compile(r'audio/ogg; codecs=opus')
+    MIME_TYPE_IMAGE_REGEXP = re.compile(r'image/.*')
+    MIME_TYPE_VIDEO_REGEXP = re.compile(r'video/.*')
+
+    def __init__(self, remote_jid: Jid, from_me: bool, key_id: str, status: int=None,
+                 data: str=None, date: typing.Union[float, datetime]=None,
+                 quote_message: TMessage=None, forwarded: bool=False,
+                 mime_type: MimeType=None, media_duration: int=None,
+                 media_name: str=None, tz: tzinfo=None):
+        self.remote_jid: Jid = remote_jid
+        self.from_me: bool = bool(from_me)
+        self.key_id: str = key_id
+        self.status: typing.Union[MessageStatus, int] = None
+        try:
+            self.status: MessageStatus = MessageStatus(status)
+        except ValueError:
+            self.status = status
+        self.data: str = data
+        self.date: datetime = datetime.fromtimestamp(date, tz=tz) if not isinstance(date, datetime) else date
+        self.quote_message: Message = quote_message
+        self.forwarded: bool = forwarded
+        self.mime_type: MimeType = mime_type
+        self.media_duration: int = media_duration
+        self.media_name: str = media_name
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}{(self.remote_jid, self.from_me, self.status, self.data, self.date, self.mime_type, self.media_duration)}'
+    
+    @staticmethod
+    def is_audio(mime_type: MimeType) -> bool:
+        return mime_type and bool(Message.MIME_TYPE_AUDIO_REGEXP.match(mime_type))
+    
+    @staticmethod
+    def is_voice_message(mime_type: MimeType) -> bool:
+        return mime_type and bool(Message.MIME_TYPE_VOICE_REGEXP.match(mime_type))
+
+    @staticmethod
+    def is_image(mime_type: MimeType) -> bool:
+        return mime_type and bool(Message.MIME_TYPE_IMAGE_REGEXP.match(mime_type)) 
+    
+    @staticmethod
+    def is_video(mime_type: MimeType) -> bool:
+        return mime_type and bool(Message.MIME_TYPE_VIDEO_REGEXP.match(mime_type)) 
 
 
 class MessageManager:
     def __init__(self):
-        self._messages = {}
-        self._contacts = set()
+        self._messages: typing.Dict[Jid, typing.List[Message]] = dict()
+        self._contacts: typing.Set[Jid] = set()
     
-    def __getitem__(self, jid):
+    def __getitem__(self, jid: Jid):
         return self._messages[jid]
     
     def __iter__(self):
         return (message for messages in self._messages.values() for message in messages)
     
     @property
-    def contacts(self):
+    def contacts(self) -> typing.Set[Jid]:
         return set(self._contacts)
 
     @staticmethod
-    def from_msgstore_db(db_path, tz=None):
+    def from_msgstore_db(db_path: FilePath, tz: tzinfo=None) -> TMessage:
         sql = 'SELECT jid.raw_string, message.from_me, message.key_id, message.status, message.text_data, ' \
               'message.timestamp, message_media.mime_type, message_media.media_name, message_media.media_duration, ' \
               'message_forwarded.forward_score, ' \
@@ -79,48 +131,6 @@ class MessageStatus(Enum):
     CONTROL_MESSAGE = 6
     READ_BY_RECIPIENT = 13
 
-
-class Message:
-    MIME_TYPE_AUDIO_REGEXP = re.compile(r'audio/.*')
-    MIME_TYPE_VOICE_REGEXP = re.compile(r'audio/ogg; codecs=opus')
-    MIME_TYPE_IMAGE_REGEXP = re.compile(r'image/.*')
-    MIME_TYPE_VIDEO_REGEXP = re.compile(r'video/.*')
-
-    def __init__(self, remote_jid, from_me, key_id, status=None, data=None, date=None,
-                 quote_message=None, forwarded=False, mime_type=None, media_duration=None, media_name=None, tz=None):
-        self.remote_jid = remote_jid
-        self.from_me = bool(from_me)
-        self.key_id = key_id
-        try:
-            self.status = status and MessageStatus(status)
-        except ValueError:
-            self.status = status
-        self.data = data
-        self.date = datetime.fromtimestamp(date, tz=tz) if not isinstance(date, datetime) else date
-        self.quote_message = quote_message
-        self.forwarded = forwarded
-        self.mime_type = mime_type
-        self.media_duration = media_duration
-        self.media_name = media_name
-    
-    def __repr__(self):
-        return f'{self.__class__.__name__}{(self.remote_jid, self.from_me, self.status, self.data, self.date, self.mime_type, self.media_duration)}'
-    
-    @staticmethod
-    def is_audio(mime_type):
-        return mime_type and bool(Message.MIME_TYPE_AUDIO_REGEXP.match(mime_type))
-    
-    @staticmethod
-    def is_voice_message(mime_type):
-        return mime_type and bool(Message.MIME_TYPE_VOICE_REGEXP.match(mime_type))
-
-    @staticmethod
-    def is_image(mime_type):
-        return mime_type and bool(Message.MIME_TYPE_IMAGE_REGEXP.match(mime_type)) 
-    
-    @staticmethod
-    def is_video(mime_type):
-        return mime_type and bool(Message.MIME_TYPE_VIDEO_REGEXP.match(mime_type)) 
 
 if __name__ == '__main__':
     message_manager = MessageManager.from_msgstore_db('msgstore.db')

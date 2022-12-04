@@ -15,7 +15,9 @@ import dataclasses
 import numpy as np
 
 from . import utils
-from .contacts import Contact, JID_REGEXP
+from .messages import Message
+from .type import Jid, FilePath
+from .contacts import Contact, ContactManager, JID_REGEXP
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -142,13 +144,17 @@ CHART_BAR_FADE_OUT_MAX_Y = CHART_BASE_Y + CHART_HEIGHT + CHART_BAR_HEIGHT_AND_MA
 DEFAULT_PROFILE_IMAGE = Image.open(os.path.join(IMAGES_DIR, 'profile-image.png'))
 DATE_FORMAT = '%b %Y'
 
+RgbColor = typing.Tuple[int, int, int]
+RgbaColor = typing.Tuple[int, int, int, int]
+ColorType = RgbColor | RgbaColor | str
+Coordinate = typing.Tuple[int, int]
 
 @dataclasses.dataclass
 class ContactBar:
-    color: typing.Tuple[int, int, int]
+    color: RgbColor
     contact_name: str = None
     value: float = 0
-    profile_image: Image = None
+    profile_image: Image.Image = None
 
 
 @dataclasses.dataclass
@@ -164,8 +170,8 @@ class PodiumUser:
 class ContactBarAnimationState:
     podium_index: int
     contact_bar: ContactBar
-    position: typing.Tuple[int, int] = (0, 0)
-    final_position: typing.Tuple[int, int] = (0, 0)
+    position: Coordinate = (0, 0)
+    final_position: Coordinate = (0, 0)
     layer: int = 0
     opacity: float = 1
     left_frames: int = 0 
@@ -175,7 +181,7 @@ class ContactBarAnimationState:
 class AnimationState:
     current_frame: int = 0
     scale: float = GRID_MIN_SCALE
-    base_image: Image = None
+    base_image: Image.Image = None
     current_date: datetime.datetime = None
     group_message_range_timedelta: datetime.timedelta = None
     frame_step_timedelta: datetime.timedelta = None
@@ -184,9 +190,9 @@ class AnimationState:
 
 
 class Podium:
-    def __init__(self, contacts):
-        self._podium_users = dict()
-        self._podium = []
+    def __init__(self, contacts: typing.Iterable[Contact]):
+        self._podium_users: typing.Dict[str, PodiumUser] = dict()
+        self._podium: typing.List[PodiumUser] = []
         self._sorted = False
         for contact in contacts:
             podium_user = PodiumUser(contact, 0)
@@ -196,13 +202,13 @@ class Podium:
     def __len__(self):
         return len(self._podium)
     
-    def __iter__(self):
+    def __iter__(self) -> typing.Iterator[PodiumUser]:
         if not self._sorted:
             self._podium.sort(reverse=True, key=lambda user: user.value)
             self._sorted = True
         return iter(self._podium)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> PodiumUser:
         if not self._sorted:
             self._podium.sort(reverse=True, key=lambda user: user.value)
             self._sorted = True
@@ -213,33 +219,34 @@ class Podium:
         self._sorted = False
 
 
-def get_offset_center(image_size, obj_size):
+def get_offset_center(image_size: typing.Tuple[int, int], obj_size: typing.Tuple[int, int]):
     return (image_size[0] - obj_size[0]) // 2, (image_size[1] - obj_size[1]) // 2
 
 
-def get_text_size(text, font, letter_spacing=0):
+def get_text_size(text: str, font: ImageFont.FreeTypeFont, letter_spacing=0) -> typing.Tuple[int, int]:
     width, height = font.getsize(text)
     width += letter_spacing * (len(text) - 1) * 0.75
     return math.ceil(width), math.ceil(height)
 
 
-def center_text(image, text, font, fill, x, y, width=None, height=None):
+def center_text(image: Image.Image, text: str, font: ImageFont.FreeTypeFont, fill: ColorType,
+                x: int, y: int, width: int=None, height: int=None):
     text_size = font.getsize(text)
     if width:
         x += (width - text_size[0]) // 2
     if height:
         y += (height - text_size[1]) // 2
-    return draw_text(image, text, fill, (x, y), font)
+    draw_text(image, text, fill, (x, y), font)
 
 
-def round_corner(radius, fill):
+def round_corner(radius: int, fill: ColorType):
     corner = Image.new(IMAGE_MODE, (radius, radius), (0, 0, 0, 0))
     draw = ImageDraw.Draw(corner)
     draw.pieslice((0, 0, radius * 2, radius * 2), 180, 270, fill=fill)
     return corner
 
 
-def round_rectangle(size, radius, fill):
+def round_rectangle(size: typing.Tuple[int, int], radius: int, fill: ColorType) -> Image.Image:
     width, height = size
     rectangle = Image.new(IMAGE_MODE, size, fill)
     corner = round_corner(radius, fill)
@@ -250,7 +257,7 @@ def round_rectangle(size, radius, fill):
     return rectangle
 
 
-def mask_image_by_circle(image, opacity=1):
+def mask_image_by_circle(image: Image.Image, opacity: float=1) -> Image.Image:
     mask = Image.new('L', image.size, 0)
     draw = ImageDraw.Draw(mask)
     fill = max(0, min(255, int(opacity * 255)))
@@ -260,19 +267,17 @@ def mask_image_by_circle(image, opacity=1):
     return image
 
 
-def create_profile_image(profile_image, size, opacity=1):
-    if isinstance(profile_image, str):
-        profile_image = Image.open(profile_image)
+def create_profile_image(profile_image: Image.Image, size: typing.Tuple[int, int], opacity: float=1) -> Image.Image:
     profile_image = mask_image_by_circle(profile_image, opacity)
     profile_image = profile_image.resize(size, Image.ANTIALIAS)
     return profile_image
 
 
-def scale_user_bar_with(value, scale):
-    return max((CHART_WIDTH / scale) * value, CHART_BAR_HEIGHT)
+def scale_user_bar_width(value: float, scale: float) -> int:
+    return max(int((CHART_WIDTH / scale) * value), CHART_BAR_HEIGHT)
 
 
-def color_opacity(color, opacity):
+def color_opacity(color: typing.Union[RgbColor, RgbaColor], opacity: float) -> RgbaColor:
     opacity = max(0, min(255, int(opacity * 255)))
     return color[:3] + (opacity,)
 
@@ -290,7 +295,8 @@ def choose_contact_bar_color(contact):
     return int(r * 256), int(g * 256), int(b * 256), 255
 
 
-def random_color(hue_range, saturation_range, brightness_range):
+def random_color(hue_range: typing.Iterable[int], saturation_range: typing.Iterable[int],
+                 brightness_range: typing.Iterable[int]) -> RgbaColor:
     hue = random.uniform(*hue_range)
     saturation = random.uniform(*saturation_range)
     brightness_range = random.uniform(*brightness_range)
@@ -298,7 +304,8 @@ def random_color(hue_range, saturation_range, brightness_range):
     return int(r * 256), int(g * 256), int(b * 256), 255
 
 
-def draw_text(image, text, fill, position, font, letter_spacing=0):
+def draw_text(image: Image.Image, text: str, fill: ColorType, position: Coordinate,
+              font: ImageFont.FreeTypeFont, letter_spacing: int=0):
     width, height = get_text_size(text, font, letter_spacing)
 
     text_placeholder = Image.new('RGBA', (width + 2, height), (255, 255, 255, 0))
@@ -319,12 +326,12 @@ def draw_text(image, text, fill, position, font, letter_spacing=0):
     image.paste(text_placeholder, (x, y), mask=text_placeholder)
 
 
-def draw_title(image):
+def draw_title(image: Image.Image):
     center_text(image, TITLE_TEXT, TITLE_TEXT_FONT, TITLE_COLOR, 
                 0, TITLE_BASE_Y, width=IMAGE_WIDTH)
 
 
-def draw_date(image, date, y_offset=0, opacity=1):
+def draw_date(image: Image.Image, date: datetime.datetime, y_offset: int=0, opacity: float=1):
     opacity = int(max(0, min(255, opacity * 255)))
     color = DATE_COLOR[:3] + (opacity,)
     text = date.strftime(DATE_FORMAT).upper()
@@ -334,9 +341,9 @@ def draw_date(image, date, y_offset=0, opacity=1):
     draw_text(image, text, color, (x, y), DATE_FONT)
 
 
-def draw_scale(image, scale):
+def draw_scale(image: Image.Image, scale: float):
     scale = int(scale)
-    
+
     scale_ten_power = 10 ** (len(str(scale)) - 1)
     divisor = 0
 
@@ -362,7 +369,9 @@ def draw_scale(image, scale):
         draw.line([x1, y1, x2, y2], GRID_COLOR, GRID_STROKE_WIDTH)
 
 
-def draw_contact_bar(image, x, y, width, profile_image, contact_name, value, color, opacity):
+def draw_contact_bar(image: Image.Image, x: int, y: int, width: int,
+                     profile_image: Image.Image, contact_name: str, value: float,
+                     color: typing.Union[RgbColor, RgbaColor], opacity: float):
     x -= CHART_BAR_LABEL_MARGIN
 
     # Label
@@ -397,13 +406,13 @@ def draw_contact_bar(image, x, y, width, profile_image, contact_name, value, col
     image.paste(profile_image, (x + width - CHART_BAR_HEIGHT, y), profile_image.convert(IMAGE_MODE))
 
 
-def frame_generate_base_image():
+def frame_generate_base_image() -> Image.Image:
     image = Image.new(IMAGE_MODE, IMAGE_SIZE, color=IMAGE_BACKGROUND)
     draw_title(image)
     return image
 
 
-def frame_handle_date_transition(image, animation_state):
+def frame_handle_date_transition(image: Image.Image, animation_state: AnimationState):
     current_month_last_day = calendar.monthrange(animation_state.current_date.year, animation_state.current_date.month)[1]
     next_month = datetime.datetime(year=animation_state.current_date.year, month=animation_state.current_date.month, day=current_month_last_day)
     next_month += datetime.timedelta(days=1)
@@ -430,7 +439,7 @@ def frame_handle_date_transition(image, animation_state):
         draw_date(image, next_month, y_offset=next_date_y_offset, opacity=next_date_opacity)
 
 
-def frame(animation_state):
+def frame(animation_state: AnimationState) -> Image.Image:
     if not animation_state.base_image:
         animation_state.base_image = image = frame_generate_base_image()
 
@@ -445,14 +454,16 @@ def frame(animation_state):
     for contact_bar_state in contact_bar_states:
         if contact_bar_state.position[1] < CHART_BAR_FADE_OUT_MAX_Y:
             contact_bar = contact_bar_state.contact_bar
-            bar_width = int(scale_user_bar_with(contact_bar.value, animation_state.scale))
+            bar_width = int(scale_user_bar_width(contact_bar.value, animation_state.scale))
             draw_contact_bar(image, *contact_bar_state.position, bar_width, contact_bar.profile_image, contact_bar.contact_name, 
                              contact_bar.value, contact_bar.color, contact_bar_state.opacity)
 
     return image
 
 
-def generate_frame_data(animation_state, podium, profile_images, contact_colors):
+def generate_frame_data(animation_state: AnimationState, podium: Podium,
+                        profile_images: typing.Dict[Jid, Image.Image],
+                        contact_colors: typing.Dict[Jid, RgbColor]):
     if not animation_state.contact_bar_states:
         animation_state.contact_bar_states = dict()
         for i, podium_user in enumerate(podium):
@@ -491,14 +502,17 @@ def generate_frame_data(animation_state, podium, profile_images, contact_colors)
     animation_state.scale = max(GRID_MIN_SCALE, first_user_based_scale, animation_state.scale * SCALE_GROWTH_RATE)
 
 
-def generate_video_frames(messages, start_date, frame_step_timedelta, podium, profile_images, contact_colors):
-    frame_image = None
+def generate_video_frames(messages: typing.Iterable[Message], start_date: datetime.datetime,
+                          frame_step_timedelta: datetime.timedelta, podium: Podium,
+                          profile_images: typing.Dict[Jid, Image.Image],
+                          contact_colors: typing.Dict[Jid, RgbColor]) -> typing.Generator[Image.Image, None, None]:
+    frame_image: Image.Image = None
     group_message_range_timedelta = datetime.timedelta(days=7 * ANIMATION_SMOOTHNESS)
     animation_state = AnimationState(current_date=start_date, frame_step_timedelta=frame_step_timedelta,
                                      group_message_range_timedelta=group_message_range_timedelta)
-    next_step_date = animation_state.current_date + group_message_range_timedelta
-    frames_by_group = group_message_range_timedelta // frame_step_timedelta
-    user_total_messages = dict()
+    next_step_date: datetime.datetime = animation_state.current_date + group_message_range_timedelta
+    frames_by_group: int = group_message_range_timedelta // frame_step_timedelta
+    user_total_messages: typing.Dict[Jid, int] = dict()
     for message in messages:
         if message.date < next_step_date:
             user_total_messages.setdefault(message.remote_jid, 0)
@@ -530,40 +544,12 @@ def generate_video_frames(messages, start_date, frame_step_timedelta, podium, pr
         for _ in range(VIDEO_END_FREEZE_TIME * VIDEO_FRAME_RATE):
             yield frame_image
 
-def group_messages_by_contact_name(contact_manager, sorted_messages):
-    messages = list(sorted_messages)
-    contact_name_most_recent = dict()
-    for message in messages:
-        contact = contact_manager.get(message.remote_jid)
-        if contact.display_name:
-            for c in contact_manager.get_contacts_by_display_name(contact.display_name):
-                contact_name_most_recent[c.jid] = contact
-    
-    for message in messages:
-        if message.remote_jid in contact_name_most_recent:
-            message.remote_jid = contact_name_most_recent[message.remote_jid].jid
-    
-    return messages
 
-
-def create_chart_race_video(contact_manager, message_manager, output, locale_='en_US.UTF-8',
-                            group_contact_by_name=True, exclude_no_display_name_contacts=False):
+def create_chart_race_video(contact_manager: ContactManager, messages: typing.List[Message],
+                            output: FilePath, locale_='en_US.UTF-8'):
     logging.info('Sorting messages by date...')
-    sorted_messages = list(message_manager)
-    sorted_messages.sort(key=lambda message: message.date)
+    messages.sort(key=lambda message: message.date)
     logging.info('Messages sorted!')
-
-    logging.info('Excluding groups...')
-    messages = []
-    for message in sorted_messages:
-        if Contact.is_user(message.remote_jid):
-            contact = contact_manager.get(message.remote_jid)
-            if (not exclude_no_display_name_contacts or (contact and contact.display_name)):
-                messages.append(message)
-
-    if group_contact_by_name:
-        logging.info('Grouping contacts by name...')
-        messages = group_messages_by_contact_name(contact_manager, messages)
 
     logging.info('Rendering profile images...')
     profile_images = dict()
