@@ -251,8 +251,9 @@ def round_rectangle(size, radius, fill):
 
 def mask_image_by_circle(image, opacity=1):
     mask = Image.new('L', image.size, 0)
-    draw = ImageDraw.Draw(mask) 
-    draw.ellipse((0, 0) + image.size, fill=max(0, min(255, int(opacity * 255))))
+    draw = ImageDraw.Draw(mask)
+    fill = max(0, min(255, int(opacity * 255)))
+    draw.ellipse((0, 0) + image.size, fill=fill)
     mask = mask.resize(image.size, Image.ANTIALIAS)
     image.putalpha(mask)
     return image
@@ -392,7 +393,7 @@ def draw_contact_bar(image, x, y, width, profile_image, contact_name, value, col
               (text_x, text_y), CHART_BAR_VALUE_TEXT_FONT)
     
     if opacity < 1:
-        profile_image = create_profile_image(profile_image, (CHART_BAR_HEIGHT, CHART_BAR_HEIGHT), opacity)
+        profile_image = create_profile_image(profile_image.copy(), (CHART_BAR_HEIGHT, CHART_BAR_HEIGHT), opacity)
 
     image.paste(profile_image, (x + width - CHART_BAR_HEIGHT, y), profile_image.convert(IMAGE_MODE))
 
