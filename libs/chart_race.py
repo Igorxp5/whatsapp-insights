@@ -118,7 +118,7 @@ DATE_COLOR = COLOR_DARK_GRAY
 VIDEO_FRAME_RATE = 60
 VIDEO_END_FREEZE_TIME = 5
 DEFAULT_DAYS_PER_SECOND = 5
-VIDEO_SPEED = 4  # x4 (drop frames)
+VIDEO_SPEED = 1.5  # x1.5 (drop frames)
 ELAPSED_TIMESTAMP_BY_FRAME = (86400 * DEFAULT_DAYS_PER_SECOND) / VIDEO_FRAME_RATE
 
 # Animation settings
@@ -499,8 +499,6 @@ def generate_video_frames(messages, start_date, frame_step_timedelta, podium, pr
     next_step_date = animation_state.current_date + group_message_range_timedelta
     frames_by_group = group_message_range_timedelta // frame_step_timedelta
     user_total_messages = dict()
-    drop_counter = 0
-    drop_increment = (1 / (1 - VIDEO_SPEED)) if VIDEO_SPEED != 1 else 0
     for message in messages:
         if message.date < next_step_date:
             user_total_messages.setdefault(message.remote_jid, 0)
@@ -513,14 +511,12 @@ def generate_video_frames(messages, start_date, frame_step_timedelta, podium, pr
                 for remote_jid in user_total_messages:
                     podium.increment_user_messages(remote_jid, user_total_messages[remote_jid])
 
-                if drop_counter < 1:
+                if VIDEO_SPEED > 0 or animation_state.current_frame % (1 / VIDEO_SPEED) >= 1:
                     generate_frame_data(animation_state, podium, profile_images, contact_colors)
-                    frame_image = frame(animation_state)
-                    drop_counter += drop_increment
-                else:
-                    drop_counter -= 1
 
-                yield frame_image
+                if VIDEO_SPEED <= 0 or animation_state.current_frame % VIDEO_SPEED < 1:
+                    frame_image = frame(animation_state)
+                    yield frame_image
 
                 animation_state.current_frame += 1
                 animation_state.current_date += frame_step_timedelta
@@ -586,7 +582,7 @@ def create_chart_race_video(contact_manager, message_manager, output, locale_='e
     podium = Podium(contact_manager.get_users())
     
     logging.info('Rendering video...')
-    total_frames = (end_date - start_date).total_seconds() / ELAPSED_TIMESTAMP_BY_FRAME
+    total_frames = ((end_date - start_date).total_seconds() / ELAPSED_TIMESTAMP_BY_FRAME) // VIDEO_SPEED
     fourcc = cv2.VideoWriter.fourcc(*'mp4v')
     video_writer = cv2.VideoWriter(output, fourcc, VIDEO_FRAME_RATE, IMAGE_SIZE)
     frame_step_timedelta = datetime.timedelta(seconds=ELAPSED_TIMESTAMP_BY_FRAME)
