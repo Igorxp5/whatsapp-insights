@@ -41,8 +41,8 @@ DEFAULT_LANGUAGE = 'pt'
 
 RESOLUTION_FACTOR  = 1920 / 1920
 
-HORIZONTAL_PADDING = round(80 * RESOLUTION_FACTOR)
-VERTICAL_PADDING = round(30 * RESOLUTION_FACTOR)
+HORIZONTAL_PADDING = math.ceil(80 * RESOLUTION_FACTOR)
+VERTICAL_PADDING = math.ceil(30 * RESOLUTION_FACTOR)
 
 # Fonts Constants
 ROBOTO_FONT_PATH = os.path.join(FONTS_DIR, 'Roboto-Regular.ttf')
@@ -54,7 +54,7 @@ PT_TO_PX_RATE = 0.9
 # Title text
 TITLE_TEXT = 'CHART RACE'
 TITLE_COLOR = COLOR_DARK_GRAY_1
-TITLE_TEXT_SIZE = round(70 * RESOLUTION_FACTOR)
+TITLE_TEXT_SIZE = math.ceil(70 * RESOLUTION_FACTOR)
 TITLE_TEXT_FONT = ImageFont.truetype(ROBOTO_BOLD_FONT_PATH, TITLE_TEXT_SIZE)
 TITLE_BASE_Y = VERTICAL_PADDING
 
@@ -64,19 +64,20 @@ AXIS_STROKE_WIDTH = 4
 
 # Chart bar constants
 CHART_BAR_TOTAL_USERS = 10
-CHART_BAR_HEIGHT = round(57 * RESOLUTION_FACTOR)
-CHART_BAR_VERTICAL_MARGIN = round(27 * RESOLUTION_FACTOR)
+CHART_BAR_HEIGHT = math.ceil(58 * RESOLUTION_FACTOR)
+CHART_BAR_VERTICAL_MARGIN = math.ceil(28 * RESOLUTION_FACTOR)
 CHART_BAR_LABEL_COLOR = COLOR_DARK_GRAY_2
-CHART_BAR_LABEL_MARGIN = round(20 * RESOLUTION_FACTOR)
-CHART_BAR_LABEL_VERTICAL_PADDING = round(10 * RESOLUTION_FACTOR)
-CHART_BAR_LABEL_HORIZONTAL_PADDING = round(20 * RESOLUTION_FACTOR)
-CHART_BAR_LABEL_TEXT_SIZE = round(25 * RESOLUTION_FACTOR)
+CHART_BAR_LABEL_HEIGHT = math.ceil(50 * RESOLUTION_FACTOR)
+CHART_BAR_LABEL_MARGIN = math.ceil(20 * RESOLUTION_FACTOR)
+CHART_BAR_LABEL_VERTICAL_PADDING = math.ceil(10 * RESOLUTION_FACTOR)
+CHART_BAR_LABEL_HORIZONTAL_PADDING = math.ceil(20 * RESOLUTION_FACTOR)
+CHART_BAR_LABEL_TEXT_SIZE = math.ceil(25 * RESOLUTION_FACTOR)
 CHART_BAR_LABEL_TEXT_FONT = ImageFont.truetype(ROBOTO_LIGHT_FONT_PATH, CHART_BAR_LABEL_TEXT_SIZE)
 CHART_BAR_LABEL_TEXT_COLOR = COLOR_WHITE
-CHART_BAR_VALUE_TEXT_SIZE = round(27 * RESOLUTION_FACTOR)
+CHART_BAR_VALUE_TEXT_SIZE = math.ceil(26 * RESOLUTION_FACTOR)
 CHART_BAR_VALUE_TEXT_FONT = ImageFont.truetype(ROBOTO_FONT_PATH, CHART_BAR_VALUE_TEXT_SIZE)
 CHART_BAR_VALUE_TEXT_COLOR = COLOR_DARK_GRAY_2
-CHART_BAR_VALUE_MARGIN = round(10 * RESOLUTION_FACTOR)
+CHART_BAR_VALUE_MARGIN = math.ceil(10 * RESOLUTION_FACTOR)
 CHART_BAR_HEIGHT_AND_MARGIN = CHART_BAR_HEIGHT + CHART_BAR_VERTICAL_MARGIN
 
 # Random color range
@@ -87,18 +88,18 @@ MAX_CONTACT_BAR_COLOR_BRIGHTNESS = 0.6
 MIN_CONTACT_BAR_COLOR_SATURATION = 0.6
 
 # Chart constants
-CHART_WIDTH = round(1200 * RESOLUTION_FACTOR)
+CHART_WIDTH = math.ceil(1200 * RESOLUTION_FACTOR)
 CHART_HEIGHT = CHART_BAR_TOTAL_USERS * CHART_BAR_HEIGHT + (CHART_BAR_TOTAL_USERS - 1) * CHART_BAR_VERTICAL_MARGIN
 
 # Grid constants
 GRID_TOTAL_COLUMNS = 8
 GRID_COLOR = COLOR_LIGHT_GRAY
 GRID_STROKE_WIDTH = 1
-GRID_SCALE_VERTICAL_MARGIN = round(20 * RESOLUTION_FACTOR)
-GRID_SCALE_TEXT_SIZE = round(25 * RESOLUTION_FACTOR)
+GRID_SCALE_VERTICAL_MARGIN = math.ceil(20 * RESOLUTION_FACTOR)
+GRID_SCALE_TEXT_SIZE = math.ceil(25 * RESOLUTION_FACTOR)
 GRID_SCALE_TEXT_COLOR = COLOR_DARK_GRAY_1
 GRID_SCALE_TEXT_FONT = ImageFont.truetype(ROBOTO_FONT_PATH, GRID_SCALE_TEXT_SIZE)
-GRID_SCALE_TEXT_MARGIN = round(10 * RESOLUTION_FACTOR)
+GRID_SCALE_TEXT_MARGIN = math.ceil(10 * RESOLUTION_FACTOR)
 GRID_SCALE_BASE_Y = TITLE_BASE_Y + TITLE_TEXT_SIZE + GRID_SCALE_VERTICAL_MARGIN
 
 GRID_MIN_SCALE = 1500
@@ -219,7 +220,7 @@ def get_offset_center(image_size, obj_size):
 def get_text_size(text, font, letter_spacing=0):
     width, height = font.getsize(text)
     width += letter_spacing * (len(text) - 1) * 0.75
-    return round(width), round(height)
+    return math.ceil(width), math.ceil(height)
 
 
 def center_text(image, text, font, fill, x, y, width=None, height=None):
@@ -299,9 +300,8 @@ def random_color(hue_range, saturation_range, brightness_range):
 
 def draw_text(image, text, fill, position, font, letter_spacing=0):
     width, height = get_text_size(text, font, letter_spacing)
-    width, height = int(width), int(height)
 
-    text_placeholder = Image.new('RGBA', (width, height), (255, 255, 255, 0))
+    text_placeholder = Image.new('RGBA', (width + 2, height), (255, 255, 255, 0))
     draw = ImageDraw.Draw(text_placeholder)
 
     x, y = position
@@ -368,17 +368,16 @@ def draw_contact_bar(image, x, y, width, profile_image, contact_name, value, col
     # Label
     text_width, text_height = get_text_size(contact_name, CHART_BAR_LABEL_TEXT_FONT)
 
-    label_height = text_height + CHART_BAR_LABEL_VERTICAL_PADDING * 2
     label_width = text_width + CHART_BAR_LABEL_HORIZONTAL_PADDING * 2
     label_x = x - label_width
-    label_y = y + (CHART_BAR_HEIGHT - label_height) // 2
+    label_y = y + (CHART_BAR_HEIGHT - CHART_BAR_LABEL_HEIGHT) // 2
 
-    text_box = round_rectangle((label_width, label_height), 0, color_opacity(CHART_BAR_LABEL_COLOR, opacity))
+    text_box = round_rectangle((label_width, CHART_BAR_LABEL_HEIGHT), 0, color_opacity(CHART_BAR_LABEL_COLOR, opacity))
     image.paste(text_box, (label_x, label_y), text_box.convert(IMAGE_MODE))
     
     center_text(image, contact_name, CHART_BAR_LABEL_TEXT_FONT, color_opacity(CHART_BAR_LABEL_TEXT_COLOR, opacity),
-                label_x, label_y, label_width, label_height)
-    
+                label_x, label_y, label_width, CHART_BAR_LABEL_HEIGHT)
+
     x += CHART_BAR_LABEL_MARGIN
 
     # Bar
