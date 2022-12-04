@@ -13,7 +13,7 @@ whatsapp-insights is a Python project for getting insights about your contacts/m
 ###  Chart Race
 
 <p>
-    <img width="700" src="https://user-images.githubusercontent.com/8163093/133349562-78063a78-292a-45cc-9491-146ed49feafb.gif" />
+    <img width="700" src="https://user-images.githubusercontent.com/8163093/205472725-677cab85-64a6-4e92-b173-5930037c8d90.gif" />
 </p>
 
 ## Pre-requisites
