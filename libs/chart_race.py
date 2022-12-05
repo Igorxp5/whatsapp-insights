@@ -472,7 +472,8 @@ def generate_frame_data(animation_state: AnimationState, podium: Podium,
             contact_color = contact_colors[podium_user.contact.jid]
             contact_bar = ContactBar(contact_color, display_name, profile_image=profile_image)
             animation_state.contact_bar_states[podium_user] = contact_bar_state = ContactBarAnimationState(i, contact_bar)
-            contact_bar_state.position = CHART_BASE_X, CHART_BASE_Y + i * CHART_BAR_HEIGHT_AND_MARGIN
+            contact_bar_state.podium_index = -1
+            contact_bar_state.position = CHART_BASE_X, CHART_BASE_Y + ((CHART_BAR_TOTAL_USERS + 1) * CHART_BAR_HEIGHT_AND_MARGIN)
             contact_bar_state.final_position = contact_bar_state.position
 
     for i, podium_user in enumerate(podium):
@@ -480,7 +481,7 @@ def generate_frame_data(animation_state: AnimationState, podium: Podium,
         contact_bar_state.contact_bar.value = int(podium_user.value)
         contact_bar_state.layer = len(podium) - i
 
-        if i != contact_bar_state.podium_index:
+        if i != contact_bar_state.podium_index and contact_bar_state.contact_bar.value > 0:
             contact_bar_state.podium_index = i
             contact_bar_state.left_frames = CHART_BAR_TRANSITION_TOTAL_FRAMES
             contact_bar_state.final_position = CHART_BASE_X, CHART_BASE_Y + i * CHART_BAR_HEIGHT_AND_MARGIN

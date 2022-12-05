@@ -43,14 +43,14 @@ pip install -r requirements.txt
 
 ## Usage
 
-*Currently we support just accounts running in Android platform. If you're an iOS user, you can try to pull your WhatsApp database using [WhatsApp Parser Tool](https://github.com/B16f00t/whapa) or moving your Account to an Android device like Android Emulator.*
-
 
 ### Extract WhatsApp Database Key
 
 **Status:** NOT WORKING
 
-**Unfortunetaly extract WhatsApp database requires a lot of steps/dependencies. To use generating insights image and generating chart race video features extract WhatsApp database by yourself. You can backup your messages to Google Drive, login into your WhatsApp account on an Android Emulator, restore the backup and pull _/data/data/com.whatsapp/databases/msgstore.db_**.
+*Currently we support just accounts running in Android platform. If you're an iOS user, you can try to pull your WhatsApp database using [WhatsApp Parser Tool](https://github.com/B16f00t/whapa) or moving your Account to an Android device like Android Emulator. You are still able to generate the chart race video without extracting the database, using Export Chat feature, see [Generate Chart Race video](#Generate-Chart-Race-video) section.*
+
+**Unfortunetaly extract WhatsApp database requires a lot of steps/dependencies. To use generating insights image and generating chart race video features extract WhatsApp database by yourself. You can backup your messages to Google Drive, login into your WhatsApp account on an Android Emulator, restore the backup and pull _/data/data/com.whatsapp/databases/msgstore.db_.**
 
 Database backup for Android platform is stored at **/sdcard/WhatsApp/Databases**. You can access it using your Android File Manager, but you can't read it because it's encrypted. The only way to read it, it's having the key to decrypt it. That key is stored in internal directory of the app at **/data/data/com.whatsapp/files**, but you can't access it. For key extraction we're gonna use an Android Emulator with root permissions to access internal files of WhatsApp.
 
@@ -107,6 +107,17 @@ python main.py extract-profile-images
 See more options running ```python main.py extract-profile-images --help```.
 
 
+### Extract Contacts
+
+To get contact names, both of the main features of this project requires **VCF** file containing contact info. You can export that using your Contacts app. The profile images in the vcf file is imported as well.
+
+**The project may not work well to match the messages' contact to your vcf file' contacts if the phone numbers in your contacts (vcf file) are correctly formatted: +CCDDDPPPPPPPPP.**
+
+**Legend:**
+- **CC: Contry code**
+- **DDD: Area Code**
+- **PPPPPPPPPP: Phone Number**
+
 ### Generate Insights Image
 
 To create the insights image you need ```msgstore.db```, export your contacts to ```vcf``` file and your contacts profile images.
@@ -143,6 +154,7 @@ python main.py generate-video --contacts contacts.vcf --msg-store msgstore.db --
 - **--locale:** Set the language of the insights descriptions. Currenly supporting: ```en_US``` and ```pt_BR```.
 - **--profile-pictures-dir:** Directory with your contacts profile images. Set this if you have saved them out of the project workspace.
 - **--exclude-no-display-name-contacts:** Not include contacts without display name.
+- **--from-export-chats:** Export your chats in Individual Chat > More > Export chat. You have to do it manually for all contacts you want presnt in the video generated. Pass the folder where all the text files are. Note, that WhatsApp feature is limited to export 40,000 messages.
 
 
 ## Insighters

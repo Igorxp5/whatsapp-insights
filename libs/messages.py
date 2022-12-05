@@ -1,11 +1,15 @@
+import os
 import re
+import uuid
 import typing
 import sqlite3
 
 from enum import Enum
 from datetime import datetime, tzinfo
 
-from .type import Jid, FilePath, MimeType
+from .contacts import ContactManager
+from .type import Jid, FilePath, DirPath, MimeType
+from .export_chats import parse_export_chat_file, EXPORT_CHAT_FILE_NAME
 
 TMessage = typing.TypeVar('TMessage', bound='Message')
 
@@ -121,6 +125,32 @@ class MessageManager:
                     message.quote_message = Message(remote_jid, from_me, key_id, status, data, timestamp / 1000, 
                                                     None, forwarded, mime_type, media_duration, media_name, tz=tz)
                 
+        return message_manager
+    
+    def from_export_chats_folder(chats_folder: DirPath, contact_manager: ContactManager, tz: tzinfo=None) -> TMessage:
+        message_manager = MessageManager()
+
+        chat_files = [file for file in os.listdir(chats_folder) if EXPORT_CHAT_FILE_NAME.match(file)]
+        for chat_file in chat_files:
+            contact_name = EXPORT_CHAT_FILE_NAME.match(chat_file).group('contact_name')
+            remote_jid = None
+            chat_file = os.path.join(chats_folder, chat_file)
+
+            messages = parse_export_chat_file(chat_file, tz)
+
+            for message in messages:
+                mime_type = '*/*' if message.media_message else None
+                contact = contact_manager.get_contacts_by_display_name(message.contact_name)
+                from_me = message.contact_name != contact_name
+                if not from_me and not remote_jid:
+                    remote_jid = contact[0].jid if contact else message.dummy_jid
+                key_id = str(uuid.uuid4())
+                status = MessageStatus.RECEIVED if from_me else MessageStatus.READ_BY_RECIPIENT
+                message = Message(remote_jid, from_me, key_id, status, message.message, message.date, mime_type=mime_type)
+
+                message_manager._messages.setdefault(remote_jid, [])
+                message_manager._messages[remote_jid].append(message)
+
         return message_manager
 
 

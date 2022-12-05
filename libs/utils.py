@@ -12,8 +12,8 @@ from PIL import Image
 from Crypto.Cipher import AES
 from difflib import SequenceMatcher
 
-from .type import FilePath
 from .messages import Message
+from .type import FilePath, Jid
 from .contacts import ContactManager
 
 
@@ -105,3 +105,7 @@ def group_messages_by_contact_name(contact_manager: ContactManager,
             message.remote_jid = contact_name_most_recent[message.remote_jid].jid
     
     return messages
+
+
+def get_profile_image_filename_by_jid(jid: Jid):
+    return f'{jid}.jpg'

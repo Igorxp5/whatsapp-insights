@@ -2,6 +2,7 @@ import io
 import os
 import json
 import base64
+import typing
 import logging
 import argparse
 import tempfile
@@ -11,6 +12,7 @@ from PIL import Image
 
 from libs import automation, utils
 from libs.android import Android
+from libs.type import Base64Image
 from libs.calls import CallManager
 from libs.sdk_manager import SDKManager
 from libs.messages import MessageManager
@@ -288,41 +290,61 @@ def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters
     create_insights_image(common_insighters, image_contacts, user_profile_image, top_insighter=top_insighter, output_path=output)
 
 
-def generate_video(msg_store, locale, profile_pictures_dir, contacts, output,
+def generate_video(msg_store, locale, profile_pictures_dir, contacts, output, export_chats_folder,
                    exclude_no_display_name_contacts=False, group_contact_by_name=True):
-    if not msg_store or not os.path.exists(msg_store):
-        logging.error(f'Messages database not found in path "{msg_store}"')
-        return
-    
     if not output:
         logging.error('No output file provided')
         return
-    
-    logging.info('Loading contacts...')
+
+    message_manager = None
+
     vcf_contact_manager = ContactManager.from_vcf(contacts)
-    contact_manager = ContactManager.from_msgtore_db(msg_store)
-    
-    logging.info('Getting contact and profile pictures from vcf...')
-    for contact in contact_manager.get_users():
-        for vcf_contact in vcf_contact_manager.get_users():
-            if utils.string_similarity(vcf_contact.jid, contact.jid) >= 0.95:
-                if not contact.display_name:
-                    contact_manager.update_contact_diplay_name(contact.jid, vcf_contact.display_name)
-                contact.profile_image = vcf_contact.profile_image
-                break
+    if export_chats_folder and not os.path.isdir(export_chats_folder):
+        logging.error(f'Set an existing folder to get exported chats from WhatsApp')
+        return
+    elif export_chats_folder:
+        logging.info('Loading messages...')
+        message_manager = MessageManager.from_export_chats_folder(export_chats_folder,
+                                                                  vcf_contact_manager)
+        contact_manager = ContactManager.from_export_chats_folder(export_chats_folder)
+    elif not msg_store or not os.path.isfile(msg_store):
+        logging.error(f'Messages database not found in path "{msg_store}"')
+        return
+    elif msg_store:
+        logging.info('Loading messages...')
+        message_manager = MessageManager.from_msgstore_db(msg_store)
+        contact_manager = ContactManager.from_msgtore_db(msg_store)
+    else:
+        logging.error(f'Set msgstore or export chats folder to get the messages')
+        return
 
     logging.info('Identifying profile pictures in the directory provided...')
+    profile_images_contact_manager = ContactManager()
+    loaded_profile_images: typing.Set[Base64Image] = set()
     if profile_pictures_dir:
         for filename in os.listdir(profile_pictures_dir):
             match = JID_REGEXP.search(filename)
             if match:
-                contact = contact_manager.get(match.group(0))
-                if contact:
-                    with open(os.path.join(profile_pictures_dir, filename), 'rb') as file:
-                        contact.profile_image = base64.b64encode(file.read()).decode('ascii')
+                contact = profile_images_contact_manager.add_contact(match.group(0), None)
+                with open(os.path.join(profile_pictures_dir, filename), 'rb') as file:
+                    contact.profile_image = base64.b64encode(file.read()).decode('ascii')
+                loaded_profile_images.add(contact.profile_image)
 
-    logging.info('Loading messages...')
-    message_manager = MessageManager.from_msgstore_db(msg_store)
+    logging.info('Loading contacts...')
+    contact_manager.update(vcf_contact_manager, overwrite_display_name=None)
+    contact_manager.update(profile_images_contact_manager, overwrite_display_name=False)
+
+    if group_contact_by_name:
+        logging.info('Update profile image of contacts with same name...')
+        for contact in contact_manager:
+            if contact.display_name:
+                profile_image = contact.profile_image
+                all_contacts = contact_manager.get_contacts_by_display_name(contact.display_name)
+                for other_contact in all_contacts:
+                    if other_contact.profile_image in loaded_profile_images:
+                        profile_image = other_contact.profile_image
+                for other_contact in all_contacts:
+                    other_contact.profile_image = profile_image
 
     logging.info('Excluding groups...')
     messages = []
@@ -542,6 +564,8 @@ if __name__ == '__main__':
     video_parser.add_argument('--output', dest='output', default='chart-race.mp4', help='Chart Race output video file')
     video_parser.add_argument('--exclude-no-display-name-contacts', default=False, action='store_true',
                               help='Not include contacts without display name')
+    video_parser.add_argument('--from-export-chats', dest='export_chats_folder', default=None,
+                              help='Folder text files containing messages exported from WhatsApp')
 
     rank_parser = subparsers.add_parser('generate-rank-file', help='Generate JSON file containing the rank of each insighter',
                                                   formatter_class=argparse.ArgumentDefaultsHelpFormatter)

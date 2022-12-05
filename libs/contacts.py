@@ -1,3 +1,4 @@
+import os
 import re
 import base64
 import typing
@@ -6,10 +7,13 @@ import vobject
 import logging
 import itertools
 
-from .type import Jid, Base64Image, FilePath
+from . import utils
+from .type import Jid, Base64Image, FilePath, DirPath
+from .export_chats import parse_export_chat_file, EXPORT_CHAT_FILE_NAME
 
 vobject.vcard.wacky_apple_photo_serialize = False
 
+USER_JID_SUFFIX = 's.whatsapp.net'
 JID_REGEXP = re.compile(r'((\d+)(-(\d+))?)@(s.whatsapp.net|g.us)')
 
 TContactManager = typing.TypeVar('TContactManager', bound='ContactManager')
@@ -21,7 +25,7 @@ class Contact:
     def __init__(self, jid: Jid, display_name: str):
         self.jid: Jid = jid
         self.display_name: str = display_name
-        self.contact_id: str = JID_REGEXP.search(self.jid).group(1)
+        self.contact_id: str = self.jid.split(USER_JID_SUFFIX, 1)[0]
         self.profile_image: Base64Image = None
 
     @property
@@ -59,7 +63,7 @@ class ContactManager:
     def __init__(self):
         self._users: typing.Dict[Jid, Contact] = dict()
         self._groups: typing.Dict[Jid, Contact] = dict()
-        self._display_names: typing.Dict[str, Contact] = dict()
+        self._display_names: typing.Dict[str, typing.Set[Contact]] = dict()
 
     def __getitem__(self, jid: Jid) -> Contact:
         return self._get_jid_dictionary(jid)[jid]
@@ -89,18 +93,18 @@ class ContactManager:
         contact = Contact(jid, display_name)
         self._get_jid_dictionary(jid)[jid] = contact
         if self._get_jid_dictionary(jid) is self._users:
-            if contact.display_name not in self._display_names:
-                self._display_names[contact.display_name] = []
-            self._display_names[contact.display_name].append(contact)
+            self._display_names.setdefault(contact.display_name, set())
+            self._display_names[contact.display_name].add(contact)
         return contact
     
     def update_contact_diplay_name(self, jid: Jid, display_name: str):
         if self._get_jid_dictionary(jid) is self._users:
             contact = self.get(jid)
+            self._display_names.setdefault(contact.display_name, set())
+            self._display_names[contact.display_name].remove(contact)
             contact.display_name = display_name
-            if contact.display_name not in self._display_names:
-                self._display_names[contact.display_name] = []
-            self._display_names[contact.display_name].append(contact)
+            self._display_names.setdefault(display_name, set())
+            self._display_names[display_name].add(contact)
 
     def get_contacts_by_display_name(self, display_name: str) -> typing.List[Contact]:
         return list(self._display_names.get(display_name, []))
@@ -110,6 +114,49 @@ class ContactManager:
         content = '\n'.join(contact.to_vcard() for contact in contacts)
         with open(filepath, 'w') as file:
             file.write(content)
+
+    def update(self, other_contact_manager: TContactManager,
+               by_display_name_similarity=False, by_jid_similarity=True,
+               overwrite_display_name: typing.Union[bool, None]=True,
+               overwrite_profile_image: typing.Union[bool, None]=True):
+        """
+        Update contacts properties in the ContactManager object using another ContactManager. Contacts
+        not present in the origin object will be added.
+
+        :param other_contact_manager: The other ContactManager object
+        :param by_display_name_similarity: Find contacts with similar display name to update (match is not required)
+        :param by_jid_similarity: Find contacts with similar jid to update (match is not required)
+        :param overwrite_display_name: Set overwrite behavior for contact display name to other's contact display name.
+            Case True, the contact display name will be overwritten when an other's contact is found in the origin ContactManager.
+            Case False, the contact display name will not be overwritten.
+            Case None, the contact display name will be overwriteen just if origin contact does not have a display name
+        :param overwrite_profile_image: Set overwrite behavior for contact profile image to other's contact profile image.
+            Case True, the contact contact profile image will be overwritten when an other's contact is found in the origin ContactManager.
+            Case False, the contact contact profile image will not be overwritten.
+            Case None, the contact contact profile image will be overwriteen just if origin contact does not have a contact profile image
+        """
+        for other_contact in other_contact_manager:
+            self_contact = self.get(other_contact.jid)
+            if self_contact and (overwrite_display_name or (overwrite_display_name is None and self_contact.display_name is None)):
+                self.update_contact_diplay_name(other_contact.jid, other_contact.display_name)
+            elif not self_contact:
+                self_contact = self.add_contact(other_contact.jid, other_contact.display_name)
+            if overwrite_profile_image or (overwrite_profile_image is None and self_contact.profile_image is None):
+                self_contact.profile_image = other_contact.profile_image
+
+        if by_display_name_similarity or by_jid_similarity:
+            for self_contact in self:
+                for other_contact in other_contact_manager:
+                    similar_jid = by_jid_similarity and utils.string_similarity(self_contact.jid, other_contact.jid) >= 0.95
+                    similar_name = by_display_name_similarity and self_contact.display_name and other_contact.display_name and \
+                        utils.string_similarity(self_contact.display_name, other_contact.display_name) >= 0.95
+
+                    if similar_jid or similar_name:
+                        if overwrite_display_name or (overwrite_display_name is None and self_contact.display_name is None):
+                            self.update_contact_diplay_name(self_contact.jid, other_contact.display_name)
+                        if overwrite_profile_image or (overwrite_profile_image is None and self_contact.profile_image is None):
+                            self_contact.profile_image = other_contact.profile_image
+
 
     def _get_jid_dictionary(self, jid: Jid) -> typing.Dict[str, Contact]:
         if Contact.is_user(jid):
@@ -168,6 +215,22 @@ class ContactManager:
                             contact.profile_image = base64.b64encode(entry.photo.value).decode('ascii')
         except vobject.base.ParseError:
             logging.warning('Failed to parse some entries in the vcf file')
+        return contact_manager
+
+    @staticmethod
+    def from_export_chats_folder(chats_folder: DirPath) -> TContactManager:
+        contact_manager = ContactManager()
+
+        chat_files = [file for file in os.listdir(chats_folder) if EXPORT_CHAT_FILE_NAME.match(file)]
+        for chat_file in chat_files:
+            chat_file = os.path.join(chats_folder, chat_file)
+
+            messages = parse_export_chat_file(chat_file)
+
+            for message in messages:
+                if message.dummy_jid not in contact_manager:
+                    contact_manager.add_contact(message.dummy_jid, message.contact_name)
+
         return contact_manager
 
 
