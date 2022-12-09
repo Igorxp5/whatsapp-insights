@@ -297,10 +297,14 @@ def generate_video(msg_store, locale, profile_pictures_dir, contacts, output, ex
         return
 
     message_manager = None
+    vcf_contact_manager = None
+    if not contacts or not os.path.isfile(contacts):
+        logging.warning(f'The contacts file was not found: "{contacts}". The contacts name may not be shown.')
+    else:
+        vcf_contact_manager = ContactManager.from_vcf(contacts)
 
-    vcf_contact_manager = ContactManager.from_vcf(contacts)
     if export_chats_folder and not os.path.isdir(export_chats_folder):
-        logging.error(f'Set an existing folder to get exported chats from WhatsApp')
+        logging.error('Set an existing folder to get exported chats from WhatsApp')
         return
     elif export_chats_folder:
         logging.info('Loading messages...')
@@ -315,7 +319,7 @@ def generate_video(msg_store, locale, profile_pictures_dir, contacts, output, ex
         message_manager = MessageManager.from_msgstore_db(msg_store)
         contact_manager = ContactManager.from_msgtore_db(msg_store)
     else:
-        logging.error(f'Set msgstore or export chats folder to get the messages')
+        logging.error('Set msgstore or export chats folder to get the messages')
         return
 
     logging.info('Identifying profile pictures in the directory provided...')
@@ -331,7 +335,10 @@ def generate_video(msg_store, locale, profile_pictures_dir, contacts, output, ex
                 loaded_profile_images.add(contact.profile_image)
 
     logging.info('Loading contacts...')
-    contact_manager.update(vcf_contact_manager, overwrite_display_name=None)
+
+    if vcf_contact_manager:
+        contact_manager.update(vcf_contact_manager, overwrite_display_name=None)
+
     contact_manager.update(profile_images_contact_manager, overwrite_display_name=False)
 
     if group_contact_by_name:

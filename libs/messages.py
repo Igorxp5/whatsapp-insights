@@ -127,7 +127,7 @@ class MessageManager:
                 
         return message_manager
     
-    def from_export_chats_folder(chats_folder: DirPath, contact_manager: ContactManager, tz: tzinfo=None) -> TMessage:
+    def from_export_chats_folder(chats_folder: DirPath, contact_manager: ContactManager=None, tz: tzinfo=None) -> TMessage:
         message_manager = MessageManager()
 
         chat_files = [file for file in os.listdir(chats_folder) if EXPORT_CHAT_FILE_NAME.match(file)]
@@ -138,12 +138,19 @@ class MessageManager:
 
             messages = parse_export_chat_file(chat_file, tz)
 
+            # Find remote_jid
+            for message in messages:
+                if message.contact_name == contact_name:
+                    if contact_manager:
+                        contact = contact_manager.get_contacts_by_display_name(message.contact_name)
+                        remote_jid = contact[0].jid if contact else None
+                    else:
+                        remote_jid = message.dummy_jid 
+                    break
+
             for message in messages:
                 mime_type = '*/*' if message.media_message else None
-                contact = contact_manager.get_contacts_by_display_name(message.contact_name)
                 from_me = message.contact_name != contact_name
-                if not from_me and not remote_jid:
-                    remote_jid = contact[0].jid if contact else message.dummy_jid
                 key_id = str(uuid.uuid4())
                 status = MessageStatus.RECEIVED if from_me else MessageStatus.READ_BY_RECIPIENT
                 message = Message(remote_jid, from_me, key_id, status, message.message, message.date, mime_type=mime_type)
