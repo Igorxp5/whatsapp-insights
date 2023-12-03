@@ -36,7 +36,7 @@ class WhatsAppWeb:
         self._login()
 
     def get_contact_profile_image_url(self, jid):
-        search_field = self._driver.find_element_by_xpath('//*[@data-testid="chat-list-search"]')
+        search_field = self._driver.find_element('xpath', '//*[@title="Search input textbox"]')
         self._driver.execute_script("arguments[0].click();", search_field)
         time.sleep(1)
         phone_number = jid.split('@', 1)[0]
@@ -44,12 +44,12 @@ class WhatsAppWeb:
         time.sleep(2)
         self._driver.implicitly_wait(2)
         try:
-            url = self._driver.find_element_by_xpath('//*[@data-testid="chatlist-status-v3-ring"]//img').get_attribute('src')
+            url = self._driver.find_element('xpath', '//*[@aria-label="Search results."]//img').get_attribute('src')
         except NoSuchElementException:
             return None
         finally:
             try:
-                self._driver.find_element_by_xpath('//*[@data-testid="x-alt"]').click()
+                self._driver.find_element('xpath', '//*[@aria-label="Chat list"]').click()
             except NoSuchElementException:
                 pass
             self._driver.implicitly_wait(DEFAULT_IMPLICITY_WAIT)
@@ -57,11 +57,11 @@ class WhatsAppWeb:
 
     def get_user_profile_image_url(self):
         try:
-            self._driver.find_element_by_xpath('//header[@data-testid="chatlist-header"]//img').click()
-            url = self._driver.find_element_by_xpath('//*[@id="app"]//div[@title="Photo Picker"]//img').get_attribute('src')
+            self._driver.find_element('xpath', '//*[@aria-label="profile photo"]//img').click()
+            url = self._driver.find_element('xpath', '//*[@id="app"]//div[@title="Photo"]//img').get_attribute('src')
         finally:
             try:
-                self._driver.find_element_by_xpath('//*[@data-testid="back"]').click()
+                self._driver.find_element('xpath', '//*[@aria-label="Back"]').click()
             except NoSuchElementException:
                 pass
         return url
@@ -69,7 +69,7 @@ class WhatsAppWeb:
     def _login(self):
         def _check_login(quit_event):
             try:
-                self._driver.find_element_by_xpath("//header[@data-testid='chatlist-header']")
+                self._driver.find_element('xpath', "//*[@aria-label='profile photo']")
             except NoSuchElementException:
                 raise RuntimeError('login state was not identified')
             finally:
@@ -99,12 +99,7 @@ class WhatsAppWeb:
         root.mainloop()
 
     def _get_qr_image(self):
-        canvas_element = self._driver.find_element_by_xpath('//canvas[@aria-label="Scan me!"]')
+        canvas_element = self._driver.find_element('xpath', '//canvas[@aria-label="Scan me!"]')
         image_url = self._driver.execute_script('return arguments[0].toDataURL()', canvas_element)
         base64_data = re.sub('^data:image/.+;base64,', '', image_url)
         return Image.open(io.BytesIO(base64.b64decode(base64_data)))
-    
-    def _load_whatsapp_api(self):
-        with open(WHATSAPP_API_SCRIPT) as file:
-            self._driver.execute_script(file.read())
-        self._driver.execute_script('window.whatsapp_api = new window.WhatsAppAPI();')

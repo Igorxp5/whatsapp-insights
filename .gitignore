@@ -1,6 +1,9 @@
 # Python Cache
 __pycache__/
 
+# VSCode
+launch.json
+
 # WhatsApp files
 key
 wa.db*
@@ -9,5 +12,7 @@ msgstore.db*
 # Workspace files
 contacts.vcf
 profile_pictures/
-chart-race.mp4
+*.mp4
 insights.png
+
+out/

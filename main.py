@@ -410,10 +410,13 @@ def extract_profile_images(msg_store, output, chromedriver, update_existent_imag
             logging.info(f'Getting profile image for "{phone_number}"...')
             image_url = whatsapp_web.get_contact_profile_image_url(contact.jid)
             if image_url:
-                with open(output_image_path, 'wb') as file:
-                    response = requests.get(image_url)
-                    file.write(response.content)
-                logging.info(f'Profile image for "{phone_number}" has been saved!')
+                if image_url.startswith('http'):
+                    with open(output_image_path, 'wb') as file:
+                        response = requests.get(image_url)
+                        file.write(response.content)
+                    logging.info(f'Profile image for "{phone_number}" has been saved!')
+                else:
+                    logging.error(f'"{phone_number}" has malformed profile image URL: {image_url}')
             else:
                 logging.info(f'"{phone_number}" does not have profile image!')
 
