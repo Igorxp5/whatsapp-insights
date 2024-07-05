@@ -8,7 +8,7 @@ import logging
 import itertools
 
 from . import utils
-from .type import Jid, Base64Image, FilePath, DirPath
+from .type import Jid, FilePath, DirPath
 from .export_chats import parse_export_chat_file, EXPORT_CHAT_FILE_NAME
 
 vobject.vcard.wacky_apple_photo_serialize = False
@@ -26,7 +26,7 @@ class Contact:
         self.jid: Jid = jid
         self.display_name: str = display_name
         self.contact_id: str = self.jid.split(USER_JID_SUFFIX, 1)[0]
-        self.profile_image: Base64Image = None
+        self.profile_image: bytes = None
 
     @property
     def phone_number(self) -> str:
@@ -47,7 +47,7 @@ class Contact:
         else:
             vcard.add('FN').value = self.display_name
         if self.profile_image:
-            vcard.add('PHOTO;ENCODING=b;image/png').value = self.profile_image
+            vcard.add('PHOTO;ENCODING=b;image/png').value = base64.b64encode(self.profile_image).decode('ascii')
         return vcard.serialize()
     
     @staticmethod
@@ -212,7 +212,7 @@ class ContactManager:
                         display_name = entry.fn.value if hasattr(entry, 'fn') else phone_number
                         contact = contact_manager.add_contact(jid, display_name)
                         if hasattr(entry, 'photo'):
-                            contact.profile_image = base64.b64encode(entry.photo.value).decode('ascii')
+                            contact.profile_image = entry.photo.value
         except vobject.base.ParseError:
             logging.warning('Failed to parse some entries in the vcf file')
         return contact_manager

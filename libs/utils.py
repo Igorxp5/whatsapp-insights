@@ -12,9 +12,11 @@ from PIL import Image
 from Crypto.Cipher import AES
 from difflib import SequenceMatcher
 
-from .messages import Message
 from .type import FilePath, Jid
-from .contacts import ContactManager
+
+if typing.TYPE_CHECKING:
+    from .contacts import ContactManager
+    from .messages import Message
 
 
 def get_adb_serials(include_emulators: bool=True) -> typing.List[str]:
@@ -90,8 +92,8 @@ def context_locale(locale_: str):
         locale.setlocale(locale.LC_ALL, default_locale)
 
 
-def group_messages_by_contact_name(contact_manager: ContactManager,
-                                   sorted_messages: typing.Iterable[Message]) -> typing.List[Message]:
+def group_messages_by_contact_name(contact_manager: 'ContactManager',
+                                   sorted_messages: typing.Iterable['Message']) -> typing.List['Message']:
     messages = list(sorted_messages)
     contact_name_most_recent = dict()
     for message in messages:

@@ -3,7 +3,6 @@ import os
 import cv2
 import tqdm
 import math
-import base64
 import random
 import typing
 import logging
@@ -11,15 +10,19 @@ import colorsys
 import datetime
 import calendar
 import dataclasses
+import multiprocessing
+import multiprocessing.shared_memory
+
+from multiprocessing.managers import SharedMemoryManager
 
 import numpy as np
+
+from PIL import Image, ImageDraw, ImageFont
 
 from . import utils
 from .messages import Message
 from .type import Jid, FilePath
 from .contacts import Contact, ContactManager, JID_REGEXP
-
-from PIL import Image, ImageDraw, ImageFont
 
 # Paths
 ROOT_DIR = os.path.join(os.path.dirname(__file__), '..')
@@ -148,13 +151,18 @@ RgbColor = typing.Tuple[int, int, int]
 RgbaColor = typing.Tuple[int, int, int, int]
 ColorType = RgbColor | RgbaColor | str
 Coordinate = typing.Tuple[int, int]
+FrameRendererData = typing.Tuple[
+    int, datetime.datetime, int, float,
+    typing.Tuple['ContactBarAnimationState'], 
+    typing.Tuple[int],
+    multiprocessing.shared_memory.ShareableList,
+]
 
 @dataclasses.dataclass
 class ContactBar:
     color: RgbColor
     contact_name: str = None
     value: float = 0
-    profile_image: Image.Image = None
 
 
 @dataclasses.dataclass
@@ -174,14 +182,13 @@ class ContactBarAnimationState:
     final_position: Coordinate = (0, 0)
     layer: int = 0
     opacity: float = 1
-    left_frames: int = 0 
+    transition_left_frames: int = 0
 
 
 @dataclasses.dataclass
 class AnimationState:
     current_frame: int = 0
     scale: float = GRID_MIN_SCALE
-    base_image: Image.Image = None
     current_date: datetime.datetime = None
     group_message_range_timedelta: datetime.timedelta = None
     frame_step_timedelta: datetime.timedelta = None
@@ -285,7 +292,7 @@ def color_opacity(color: typing.Union[RgbColor, RgbaColor], opacity: float) -> R
 def choose_contact_bar_color(contact):
     if not contact.profile_image:
         return random_color(CHART_BAR_COLOR_HUE_RANGE, CHART_BAR_COLOR_SATURATION_RANGE, CHART_BAR_COLOR_BRIGHTNESS_RANGE)
-    image = Image.open(io.BytesIO(base64.b64decode(contact.profile_image)))
+    image = Image.open(io.BytesIO(contact.profile_image))
     total_pixels = image.size[0] * image.size[1]
     dominant_color = max([c for c in image.getcolors(total_pixels) if len(c[1]) >= 3 or c[1][3] >= 70], key=lambda c: c[0])[1]
     dominant_color = [c / 255 for c in dominant_color]
@@ -412,65 +419,56 @@ def frame_generate_base_image() -> Image.Image:
     return image
 
 
-def frame_handle_date_transition(image: Image.Image, animation_state: AnimationState):
-    current_month_last_day = calendar.monthrange(animation_state.current_date.year, animation_state.current_date.month)[1]
-    next_month = datetime.datetime(year=animation_state.current_date.year, month=animation_state.current_date.month, day=current_month_last_day)
-    next_month += datetime.timedelta(days=1)
-    remaining_frames_to_next_month = math.ceil((next_month - animation_state.current_date) / animation_state.frame_step_timedelta)
-    is_month_close_to_change = remaining_frames_to_next_month <= DATE_TRANSITION_TOTAL_FRAMES
-    
-    if not animation_state.date_transition_start_frame and is_month_close_to_change:
-        animation_state.date_transition_start_frame = animation_state.current_frame
-    
-    if animation_state.date_transition_start_frame and not is_month_close_to_change:
-        animation_state.date_transition_start_frame = None
+def render_frame(current_frame: int, current_date: datetime.datetime, date_transition_start_frame: int,
+                 scale: float, contact_bars_state: typing.List[ContactBarAnimationState],
+                 contact_bars_profile_image: typing.List[Image.Image]) -> Image.Image:
+    image = frame_generate_base_image()
 
-    if not animation_state.date_transition_start_frame:
-        draw_date(image, animation_state.current_date)
+    if not date_transition_start_frame:
+        draw_date(image, current_date)
     else:
-        date_transition_frame = animation_state.current_frame - animation_state.date_transition_start_frame
+        date_transition_frame = current_frame - date_transition_start_frame
 
         current_date_y_offset = int(-DATE_TRANSITION_Y_OFFSET_STEP * date_transition_frame)
         current_date_opacity = 1 - (DATE_TRANSITION_OPACITY_STEP * date_transition_frame)
-        draw_date(image, animation_state.current_date, y_offset=current_date_y_offset, opacity=current_date_opacity)
+        draw_date(image, current_date, y_offset=current_date_y_offset, opacity=current_date_opacity)
 
         next_date_y_offset = DATE_TRANSITION_Y_OFFSET - (DATE_TRANSITION_Y_OFFSET_STEP * date_transition_frame)
         next_date_opacity = DATE_TRANSITION_OPACITY_STEP * date_transition_frame
+
+        current_month_last_day = calendar.monthrange(current_date.year, current_date.month)[1]
+        next_month = datetime.datetime(year=current_date.year, month=current_date.month, day=current_month_last_day)
+        next_month += datetime.timedelta(days=1)
         draw_date(image, next_month, y_offset=next_date_y_offset, opacity=next_date_opacity)
+    
+    draw_scale(image, scale)
 
-
-def frame(animation_state: AnimationState) -> Image.Image:
-    if not animation_state.base_image:
-        animation_state.base_image = image = frame_generate_base_image()
-
-    image = animation_state.base_image.copy()
-
-    frame_handle_date_transition(image, animation_state)
-
-    draw_scale(image, animation_state.scale)
-
-    # Draw low layers first
-    contact_bar_states = sorted(animation_state.contact_bar_states.values(), key=lambda s: s.layer)
-    for contact_bar_state in contact_bar_states:
+    # Draw lower layers first
+    contact_bars_state = sorted(contact_bars_state, key=lambda s: s.layer)
+    for contact_bar_state, profile_image in zip(contact_bars_state, contact_bars_profile_image):
         if contact_bar_state.position[1] < CHART_BAR_FADE_OUT_MAX_Y:
             contact_bar = contact_bar_state.contact_bar
-            bar_width = int(scale_user_bar_width(contact_bar.value, animation_state.scale))
-            draw_contact_bar(image, *contact_bar_state.position, bar_width, contact_bar.profile_image, contact_bar.contact_name, 
+            bar_width = int(scale_user_bar_width(contact_bar.value, scale))
+            draw_contact_bar(image, *contact_bar_state.position, bar_width, profile_image, contact_bar.contact_name, 
                              contact_bar.value, contact_bar.color, contact_bar_state.opacity)
 
-    return image
+    return image.convert('RGB')
 
 
-def generate_frame_data(animation_state: AnimationState, podium: Podium,
-                        profile_images: typing.Dict[Jid, Image.Image],
-                        contact_colors: typing.Dict[Jid, RgbColor]):
+def worker_frame_renderer(data: FrameRendererData):
+    current_frame, current_date, date_transition_start_frame, scale, contact_bars_state, contact_bars_profile_image_index, raw_profile_images = data
+    contact_bars_profile_image = [Image.open(io.BytesIO(raw_profile_images[index])) for index in contact_bars_profile_image_index]
+    return render_frame(current_frame, current_date, date_transition_start_frame, scale, contact_bars_state, contact_bars_profile_image)
+
+
+def update_animation_state(animation_state: AnimationState, podium: Podium,
+                           contact_colors: typing.Dict[Jid, RgbColor]):
     if not animation_state.contact_bar_states:
         animation_state.contact_bar_states = dict()
         for i, podium_user in enumerate(podium):
             display_name = podium_user.contact.display_name or f'+{JID_REGEXP.search(podium_user.contact.jid).group(1)}'
-            profile_image = profile_images[podium_user.contact.jid]
             contact_color = contact_colors[podium_user.contact.jid]
-            contact_bar = ContactBar(contact_color, display_name, profile_image=profile_image)
+            contact_bar = ContactBar(contact_color, display_name)
             animation_state.contact_bar_states[podium_user] = contact_bar_state = ContactBarAnimationState(i, contact_bar)
             contact_bar_state.podium_index = -1
             contact_bar_state.position = CHART_BASE_X, CHART_BASE_Y + ((CHART_BAR_TOTAL_USERS + 1) * CHART_BAR_HEIGHT_AND_MARGIN)
@@ -483,15 +481,15 @@ def generate_frame_data(animation_state: AnimationState, podium: Podium,
 
         if i != contact_bar_state.podium_index and contact_bar_state.contact_bar.value > 0:
             contact_bar_state.podium_index = i
-            contact_bar_state.left_frames = CHART_BAR_TRANSITION_TOTAL_FRAMES
+            contact_bar_state.transition_left_frames = CHART_BAR_TRANSITION_TOTAL_FRAMES
             contact_bar_state.final_position = CHART_BASE_X, CHART_BASE_Y + i * CHART_BAR_HEIGHT_AND_MARGIN
 
-        if contact_bar_state.left_frames > 0:
-            x_step = (contact_bar_state.final_position[0] - contact_bar_state.position[0]) // contact_bar_state.left_frames
-            y_step = (contact_bar_state.final_position[1] - contact_bar_state.position[1]) // contact_bar_state.left_frames
+        if contact_bar_state.transition_left_frames > 0:
+            x_step = (contact_bar_state.final_position[0] - contact_bar_state.position[0]) // contact_bar_state.transition_left_frames
+            y_step = (contact_bar_state.final_position[1] - contact_bar_state.position[1]) // contact_bar_state.transition_left_frames
             contact_bar_state.position = contact_bar_state.position[0] + x_step, contact_bar_state.position[1] + y_step
 
-            contact_bar_state.left_frames -= 1
+            contact_bar_state.transition_left_frames -= 1
 
         if contact_bar_state.position[1] < CHART_BAR_FADE_IN_Y:
             contact_bar_state.opacity = 1
@@ -502,18 +500,47 @@ def generate_frame_data(animation_state: AnimationState, podium: Podium,
     first_user_based_scale = podium[0].value * GRID_FIRST_USER_SCALE_FACTOR
     animation_state.scale = max(GRID_MIN_SCALE, first_user_based_scale, animation_state.scale * SCALE_GROWTH_RATE)
 
+    update_animation_state_date_transition(animation_state)
 
-def generate_video_frames(messages: typing.Iterable[Message], start_date: datetime.datetime,
-                          frame_step_timedelta: datetime.timedelta, podium: Podium,
-                          profile_images: typing.Dict[Jid, Image.Image],
-                          contact_colors: typing.Dict[Jid, RgbColor]) -> typing.Generator[Image.Image, None, None]:
-    frame_image: Image.Image = None
+
+def update_animation_state_date_transition(animation_state: AnimationState):
+    current_month_last_day = calendar.monthrange(animation_state.current_date.year, animation_state.current_date.month)[1]
+    next_month = datetime.datetime(year=animation_state.current_date.year, month=animation_state.current_date.month, day=current_month_last_day)
+    next_month += datetime.timedelta(days=1)
+    remaining_frames_to_next_month = math.ceil((next_month - animation_state.current_date) / animation_state.frame_step_timedelta)
+    is_month_close_to_change = remaining_frames_to_next_month <= DATE_TRANSITION_TOTAL_FRAMES
+    
+    if not animation_state.date_transition_start_frame and is_month_close_to_change:
+        animation_state.date_transition_start_frame = animation_state.current_frame
+    
+    if animation_state.date_transition_start_frame and not is_month_close_to_change:
+        animation_state.date_transition_start_frame = None
+
+
+def generate_frames_renderer_data(messages: typing.Iterable[Message], start_date: datetime.datetime,
+                                  frame_step_timedelta: datetime.timedelta, podium: Podium,
+                                  profile_images: typing.Dict[Jid, Image.Image],
+                                  contact_colors: typing.Dict[Jid, RgbColor],
+                                  shared_memory_manager: SharedMemoryManager) -> typing.Generator[FrameRendererData, None, None]:
+    frame_data: FrameRendererData = None
     group_message_range_timedelta = datetime.timedelta(days=7 * ANIMATION_SMOOTHNESS)
     animation_state = AnimationState(current_date=start_date, frame_step_timedelta=frame_step_timedelta,
                                      group_message_range_timedelta=group_message_range_timedelta)
     next_step_date: datetime.datetime = animation_state.current_date + group_message_range_timedelta
     frames_by_group: int = group_message_range_timedelta // frame_step_timedelta
     user_total_messages: typing.Dict[Jid, int] = dict()
+
+    shared_profile_images = []
+    profile_image_indexes = {}
+    for i, (jid, image) in enumerate(profile_images.items()):
+        buffer = io.BytesIO()
+        image.save(buffer, 'PNG')
+        buffer.seek(0)
+        shared_profile_images.append(buffer.read())
+        profile_image_indexes[jid] = i
+
+    shared_profile_images = shared_memory_manager.ShareableList(shared_profile_images)
+
     for message in messages:
         if message.date < next_step_date:
             user_total_messages.setdefault(message.remote_jid, 0)
@@ -527,11 +554,20 @@ def generate_video_frames(messages: typing.Iterable[Message], start_date: dateti
                     podium.increment_user_messages(remote_jid, user_total_messages[remote_jid])
 
                 if VIDEO_SPEED > 0 or animation_state.current_frame % (1 / VIDEO_SPEED) >= 1:
-                    generate_frame_data(animation_state, podium, profile_images, contact_colors)
+                    update_animation_state(animation_state, podium, contact_colors)
 
                 if VIDEO_SPEED <= 0 or animation_state.current_frame % VIDEO_SPEED < 1:
-                    frame_image = frame(animation_state)
-                    yield frame_image
+                    contact_bars_state = []
+                    contact_bar_profile_image_index = []
+                    for podium_user, contact_bar_state in animation_state.contact_bar_states.items():
+                        if contact_bar_state.position[1] < CHART_BAR_FADE_OUT_MAX_Y:
+                            contact_bars_state.append(contact_bar_state)
+                            contact_bar_profile_image_index.append(profile_image_indexes[podium_user.contact.jid])
+
+                    frame_data = (animation_state.current_frame, animation_state.current_date,
+                                  animation_state.date_transition_start_frame, animation_state.scale,
+                                  contact_bars_state, contact_bar_profile_image_index, shared_profile_images)
+                    yield frame_data
 
                 animation_state.current_frame += 1
                 animation_state.current_date += frame_step_timedelta
@@ -541,9 +577,9 @@ def generate_video_frames(messages: typing.Iterable[Message], start_date: dateti
 
     # TODO: Last messages aren't being included
 
-    if frame_image:
+    if frame_data:
         for _ in range(VIDEO_END_FREEZE_TIME * VIDEO_FRAME_RATE):
-            yield frame_image
+            yield frame_data
 
 
 def create_chart_race_video(contact_manager: ContactManager, messages: typing.List[Message],
@@ -557,7 +593,7 @@ def create_chart_race_video(contact_manager: ContactManager, messages: typing.Li
     contact_colors = dict()
     for contact in contact_manager.get_users():
         if contact.profile_image:
-            profile_images[contact.jid] = Image.open(io.BytesIO(base64.b64decode(contact.profile_image)))
+            profile_images[contact.jid] = Image.open(io.BytesIO(contact.profile_image))
         else:
             profile_images[contact.jid] = DEFAULT_PROFILE_IMAGE
         profile_images[contact.jid] = create_profile_image(profile_images[contact.jid], (CHART_BAR_HEIGHT, CHART_BAR_HEIGHT))
@@ -573,12 +609,18 @@ def create_chart_race_video(contact_manager: ContactManager, messages: typing.Li
     fourcc = cv2.VideoWriter.fourcc(*'mp4v')
     video_writer = cv2.VideoWriter(output, fourcc, VIDEO_FRAME_RATE, IMAGE_SIZE)
     frame_step_timedelta = datetime.timedelta(seconds=ELAPSED_TIMESTAMP_BY_FRAME)
-    with utils.context_locale(locale_):
-        frames = generate_video_frames(messages, start_date, frame_step_timedelta, podium, profile_images, contact_colors)
-        tqdm_iterator = tqdm.tqdm(frames, total=total_frames)
+
+    multiprocessing.freeze_support()
+
+    num_processes = multiprocessing.cpu_count()
+
+    with utils.context_locale(locale_), SharedMemoryManager() as smm, multiprocessing.Pool(processes=num_processes) as pool:
+        frames_data = generate_frames_renderer_data(messages, start_date, frame_step_timedelta, podium, profile_images, contact_colors, smm)
+        tasks = pool.imap(worker_frame_renderer, frames_data, 15)
+        tqdm_iterator = tqdm.tqdm(tasks, total=total_frames)
         try:
             for frame in tqdm_iterator:
-                cv_image = cv2.cvtColor(np.array(frame), cv2.COLOR_RGBA2BGR)
+                cv_image = cv2.cvtColor(np.array(frame), cv2.COLOR_RGB2BGR)
                 video_writer.write(cv_image)
         finally:
             video_writer.release()

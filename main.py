@@ -1,7 +1,6 @@
 import io
 import os
 import json
-import base64
 import typing
 import logging
 import argparse
@@ -12,7 +11,6 @@ from PIL import Image
 
 from libs import automation, utils
 from libs.android import Android
-from libs.type import Base64Image
 from libs.calls import CallManager
 from libs.sdk_manager import SDKManager
 from libs.messages import MessageManager
@@ -236,7 +234,7 @@ def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters
             match = JID_REGEXP.search(filename)
             if match:
                 with open(os.path.join(profile_pictures_dir, filename), 'rb') as file:
-                    profile_pictures[match.group(0)] = base64.b64encode(file.read()).decode('ascii')
+                    profile_pictures[match.group(0)] = file.read()
     
     insighter_manager = InsighterManager(contact_manager=contact_manager, group_by_name=True)
 
@@ -275,7 +273,7 @@ def generate_image(msg_store, locale, profile_pictures_dir, contacts, insighters
     for contact in contact_manager.get_users():
         profile_picture = profile_pictures.get(contact.jid, contact.profile_image)
         if profile_picture:
-            profile_picture = Image.open(io.BytesIO(base64.b64decode(profile_picture)))
+            profile_picture = Image.open(io.BytesIO(profile_picture))
         image_contacts[contact.jid] = contact.display_name, profile_picture
     
     logging.info('Generating the image...')
@@ -324,14 +322,14 @@ def generate_video(msg_store, locale, profile_pictures_dir, contacts, output, ex
 
     logging.info('Identifying profile pictures in the directory provided...')
     profile_images_contact_manager = ContactManager()
-    loaded_profile_images: typing.Set[Base64Image] = set()
+    loaded_profile_images: typing.Set[bytes] = set()
     if profile_pictures_dir:
         for filename in os.listdir(profile_pictures_dir):
             match = JID_REGEXP.search(filename)
             if match:
                 contact = profile_images_contact_manager.add_contact(match.group(0), None)
                 with open(os.path.join(profile_pictures_dir, filename), 'rb') as file:
-                    contact.profile_image = base64.b64encode(file.read()).decode('ascii')
+                    contact.profile_image = file.read()
                 loaded_profile_images.add(contact.profile_image)
 
     logging.info('Loading contacts...')
